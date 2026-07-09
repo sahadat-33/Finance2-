@@ -1,0 +1,629 @@
+package com.example.viewmodel
+
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.data.Category
+import com.example.data.FinanceRepository
+import com.example.data.SavingsVault
+import com.example.data.Transaction
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import java.util.Calendar
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+
+class FinanceViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository = FinanceRepository(application)
+
+    private val sharedPrefs = application.getSharedPreferences("taka_tracker_prefs", android.content.Context.MODE_PRIVATE)
+    private val _isDarkMode = MutableStateFlow(sharedPrefs.getBoolean("dark_mode", false))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+
+    private val _currencySymbol = MutableStateFlow(sharedPrefs.getString("currency_symbol", "৳") ?: "৳")
+    val currencySymbol: StateFlow<String> = _currencySymbol.asStateFlow()
+
+    fun setCurrencySymbol(symbol: String) {
+        sharedPrefs.edit().putString("currency_symbol", symbol).apply()
+        _currencySymbol.value = symbol
+        viewModelScope.launch {
+            repository.cloudSyncManager.updateUserCurrency(symbol)
+        }
+    }
+
+    private val _isOfflineGuest = MutableStateFlow(sharedPrefs.getBoolean("isOfflineGuest", false))
+    val isOfflineGuest: StateFlow<Boolean> = _isOfflineGuest.asStateFlow()
+
+    private val _isOnboardingComplete = MutableStateFlow(sharedPrefs.getBoolean("isOnboardingComplete", false))
+    val isOnboardingComplete: StateFlow<Boolean> = _isOnboardingComplete.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val count = repository.dao.getAllTransactions().size
+            if (count > 0 && !sharedPrefs.getBoolean("isOnboardingComplete", false)) {
+                completeOnboarding()
+            }
+        }
+    }
+
+    fun completeOnboarding() {
+        sharedPrefs.edit().putBoolean("isOnboardingComplete", true).apply()
+        _isOnboardingComplete.value = true
+    }
+
+    fun setOfflineGuest(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("isOfflineGuest", enabled).apply()
+        _isOfflineGuest.value = enabled
+    }
+
+    suspend fun enableOfflineGuest() {
+        sharedPrefs.edit().putBoolean("isOfflineGuest", true).apply()
+        _isOfflineGuest.value = true
+        val txCount = repository.dao.getAllTransactions().size
+        if (txCount > 0) {
+            completeOnboarding()
+        } else {
+            sharedPrefs.edit().putBoolean("isOnboardingComplete", false).apply()
+            _isOnboardingComplete.value = false
+        }
+    }
+
+    fun toggleDarkMode(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("dark_mode", enabled).apply()
+        _isDarkMode.value = enabled
+    }
+
+    private val _isCloudSyncEnabled = MutableStateFlow(sharedPrefs.getBoolean("cloud_sync_enabled", true))
+    val isCloudSyncEnabled: StateFlow<Boolean> = _isCloudSyncEnabled.asStateFlow()
+
+    fun setCloudSyncEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("cloud_sync_enabled", enabled).apply()
+        _isCloudSyncEnabled.value = enabled
+    }
+
+    private val cryptoPrefs by lazy {
+        val masterKey = MasterKey.Builder(application)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            application,
+            "secret_pin_prefs",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    private val _isPinEnabled = MutableStateFlow(sharedPrefs.getBoolean("pin_enabled", false))
+    val isPinEnabled: StateFlow<Boolean> = _isPinEnabled.asStateFlow()
+
+    private val _isAppLocked = MutableStateFlow(sharedPrefs.getBoolean("pin_enabled", false))
+    val isAppLocked: StateFlow<Boolean> = _isAppLocked.asStateFlow()
+
+    fun setPin(pin: String) {
+        cryptoPrefs.edit().putString("app_pin", pin).apply()
+        sharedPrefs.edit().putBoolean("pin_enabled", true).apply()
+        _isPinEnabled.value = true
+    }
+
+    fun verifyPin(pin: String): Boolean {
+        val savedPin = cryptoPrefs.getString("app_pin", null)
+        if (savedPin == pin) {
+            _isAppLocked.value = false
+            return true
+        }
+        return false
+    }
+
+    fun disablePin(pin: String): Boolean {
+        val savedPin = cryptoPrefs.getString("app_pin", null)
+        if (savedPin == pin) {
+            cryptoPrefs.edit().remove("app_pin").apply()
+            sharedPrefs.edit().putBoolean("pin_enabled", false).apply()
+            _isPinEnabled.value = false
+            _isAppLocked.value = false
+            return true
+        }
+        return false
+    }
+
+    fun lockApp() {
+        if (_isPinEnabled.value) {
+            _isAppLocked.value = true
+        }
+    }
+
+    // Current selected month & year (defaulting to current date runtime, e.g. May 2026)
+    private val _selectedCalendar = MutableStateFlow(Calendar.getInstance())
+    val selectedCalendar: StateFlow<Calendar> = _selectedCalendar.asStateFlow()
+
+    // Database Flows
+    val allTransactions: StateFlow<List<Transaction>> = repository.getAllTransactions()
+        .map { rawTx ->
+            val sortedTxs = rawTx.sortedBy { it.date }
+            if (sortedTxs.isEmpty()) return@map rawTx
+            
+            val minCal = Calendar.getInstance().apply { timeInMillis = sortedTxs.first().date }
+            val minYear = minCal.get(Calendar.YEAR)
+            val minMonth = minCal.get(Calendar.MONTH)
+            
+            val maxCal = Calendar.getInstance().apply { timeInMillis = sortedTxs.last().date }
+            val maxYear = maxCal.get(Calendar.YEAR)
+            val maxMonth = maxCal.get(Calendar.MONTH)
+            
+            val resultList = mutableListOf<Transaction>()
+            resultList.addAll(rawTx)
+            
+            var currentCarryover = 0.0
+            
+            var y = minYear
+            var m = minMonth
+            
+            while (y < maxYear || (y == maxYear && m <= maxMonth)) {
+                // If there's an existing carryover entry, skip injecting but it adds to currentCarryover dynamically via normal income processing
+                val hasCarryover = resultList.any { tx -> 
+                    val c = Calendar.getInstance().apply { timeInMillis = tx.date }
+                    c.get(Calendar.YEAR) == y && c.get(Calendar.MONTH) == m && tx.categoryName == "Last Month Carryover"
+                }
+                
+                if (currentCarryover > 0 && !hasCarryover) {
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, y)
+                        set(Calendar.MONTH, m)
+                        set(Calendar.DAY_OF_MONTH, 1)
+                    }
+                    resultList.add(Transaction(type = "INCOME", categoryName = "Last Month Carryover", amount = currentCarryover, date = cal.timeInMillis, note = "System Carryover"))
+                }
+                
+                // Now calculate the net for this month (which now includes the carryover we just added or organically existed)
+                val monthTx = resultList.filter { tx ->
+                    val c = Calendar.getInstance().apply { timeInMillis = tx.date }
+                    c.get(Calendar.YEAR) == y && c.get(Calendar.MONTH) == m
+                }
+                
+                var recv = 0.0
+                var exp = 0.0
+                monthTx.forEach { tx ->
+                    if (tx.type == "INCOME") recv += tx.amount
+                    if (tx.type == "EXPENSE") exp += tx.amount
+                }
+                
+                currentCarryover = (recv - exp).coerceAtLeast(0.0)
+                
+                m++
+                if (m > 11) {
+                    m = 0
+                    y++
+                }
+            }
+            
+            resultList
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allCategories: StateFlow<List<Category>> = repository.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allSavingsVault: StateFlow<List<SavingsVault>> = repository.getAllSavingsVault()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dynamicVaultBalances: StateFlow<List<SavingsVault>> = combine(
+        allTransactions,
+        allSavingsVault
+    ) { transactions, vaults ->
+        vaults.map { vault ->
+            var currentBalance = 0.0
+            transactions.filter { it.categoryName == "Savings" }.forEach { tx ->
+                val matchTo = Regex("^To (.*) Vault").find(tx.note)
+                val matchFrom = Regex("^From (.*) Vault").find(tx.note)
+                val targetVaultName = matchTo?.groupValues?.get(1) ?: matchFrom?.groupValues?.get(1)
+                
+                if (targetVaultName == vault.assetType) {
+                    if (tx.type == "EXPENSE") {
+                        currentBalance += tx.amount
+                    } else if (tx.type == "INCOME") {
+                        currentBalance -= tx.amount
+                    }
+                }
+            }
+            vault.copy(amount = currentBalance)
+        }.filter { it.amount > 0.0 || vaults.size == 1 } // Optionally filter out 0 balances if needed, or keep all.
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Filtered & Computed States for Selected Month
+    val monthlyStatsFlow: StateFlow<MonthlyStats> = combine(
+        allTransactions,
+        _selectedCalendar
+    ) { transactions, calendar ->
+        val targetMonth = calendar.get(Calendar.MONTH)
+        val targetYear = calendar.get(Calendar.YEAR)
+
+        // Filter transactions for selected month/year
+        val monthlyTransactions = transactions.filter { tx ->
+            val txCal = Calendar.getInstance().apply { timeInMillis = tx.date }
+            txCal.get(Calendar.MONTH) == targetMonth && txCal.get(Calendar.YEAR) == targetYear
+        }.toMutableList()
+
+        // Calculations
+        var totalEarnings = 0.0
+        var totalExpenses = 0.0
+        var totalSavingsContributed = 0.0
+        var carryover = 0.0
+
+        for (tx in monthlyTransactions) {
+            if (tx.type == "INCOME") {
+                if (tx.categoryName == "Savings") {
+                    totalSavingsContributed -= tx.amount
+                } else if (tx.categoryName == "Last Month Carryover") {
+                    carryover += tx.amount
+                } else {
+                    totalEarnings += tx.amount
+                }
+            } else if (tx.type == "EXPENSE") {
+                if (tx.categoryName == "Savings") {
+                    totalSavingsContributed += tx.amount
+                } else {
+                    totalExpenses += tx.amount
+                }
+            }
+        }
+
+        val cashBalance = totalEarnings + carryover - totalExpenses - totalSavingsContributed
+
+        // Expenses breakdown by category
+        val expenseTransactions = monthlyTransactions.filter { it.type == "EXPENSE" }
+        val categoryExpenseMap = expenseTransactions.groupBy { it.categoryName }
+            .mapValues { entry -> entry.value.sumOf { it.amount } }
+
+        val sortedCategoryExpenses = categoryExpenseMap.entries
+            .map { CategoryAmount(it.key, it.value) }
+            .sortedByDescending { it.amount }
+
+        // Earnings breakdown by category
+        val earningTransactions = monthlyTransactions.filter { it.type == "INCOME" }
+        val categoryEarningMap = earningTransactions.groupBy { it.categoryName }
+            .mapValues { entry -> entry.value.sumOf { it.amount } }
+
+        val sortedCategoryEarnings = categoryEarningMap.entries
+            .map { CategoryAmount(it.key, it.value) }
+            .sortedByDescending { it.amount }
+
+        MonthlyStats(
+            totalEarnings = totalEarnings,
+            totalExpenses = totalExpenses,
+            totalSavingsContributed = totalSavingsContributed,
+            cashBalance = cashBalance,
+            transactions = monthlyTransactions, // contains the injected carryover
+            categoryExpenses = sortedCategoryExpenses,
+            categoryEarnings = sortedCategoryEarnings
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        MonthlyStats(0.0, 0.0, 0.0, 0.0, emptyList(), emptyList(), emptyList())
+    )
+
+    private val _isUserSignedInFlow = MutableStateFlow(repository.authManager.isUserSignedIn)
+    val isUserSignedInFlow: StateFlow<Boolean> = _isUserSignedInFlow
+
+    private val _isEmailVerifiedFlow = MutableStateFlow(repository.authManager.auth?.currentUser?.isEmailVerified == true)
+    val isEmailVerifiedFlow: StateFlow<Boolean> = _isEmailVerifiedFlow
+
+    val isUserSignedIn: Boolean
+        get() = repository.authManager.isUserSignedIn
+
+    fun refreshAuthState() {
+        _isUserSignedInFlow.value = repository.authManager.isUserSignedIn
+        _isEmailVerifiedFlow.value = repository.authManager.auth?.currentUser?.isEmailVerified == true
+    }
+
+    suspend fun checkEmailVerification(): Boolean {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val user = repository.authManager.auth?.currentUser
+            if (user != null) {
+                try { user.reload().await() } catch (e: Exception) {}
+            }
+            val verified = user?.isEmailVerified == true
+            
+            if (verified) {
+                repository.cloudSyncManager.fetchFromCloud()
+                val cloudCurrency = repository.cloudSyncManager.fetchUserProfileCurrency()
+                if (cloudCurrency != null) {
+                    sharedPrefs.edit().putString("currency_symbol", cloudCurrency).apply()
+                    _currencySymbol.value = cloudCurrency
+                } else {
+                    repository.cloudSyncManager.updateUserCurrency(_currencySymbol.value)
+                }
+                repository.cloudSyncManager.syncToCloud()
+                val txCount = repository.dao.getAllTransactions().size
+                if (txCount > 0) {
+                    completeOnboarding()
+                } else {
+                    sharedPrefs.edit().putBoolean("isOnboardingComplete", false).apply()
+                    _isOnboardingComplete.value = false
+                }
+            }
+            // Update flow after state resolution to avoid race condition navigation flashes
+            _isEmailVerifiedFlow.value = verified
+            verified
+        }
+    }
+
+    val isEmailVerified: Boolean
+        get() = repository.authManager.auth?.currentUser?.isEmailVerified == true
+
+    val currentUserName: String
+        get() = repository.authManager.auth?.currentUser?.displayName ?: ""
+
+    val currentUserEmail: String
+        get() = repository.authManager.auth?.currentUser?.email ?: ""
+
+    suspend fun createAccount(email: String, pass: String, username: String): Boolean {
+        val success = repository.createAccount(email, pass, username)
+        if (success) refreshAuthState()
+        return success
+    }
+
+    suspend fun login(email: String, pass: String): Boolean {
+        val success = repository.login(email, pass)
+        if (success) {
+            refreshAuthState()
+            val cloudCurrency = repository.cloudSyncManager.fetchUserProfileCurrency()
+            if (cloudCurrency != null) {
+                sharedPrefs.edit().putString("currency_symbol", cloudCurrency).apply()
+                _currencySymbol.value = cloudCurrency
+            }
+            // If they login and already have transactions fetched from cloud (fetchFromCloud is called inside repo login)
+            // Or if we wait a bit and check
+            val txCount = repository.dao.getAllTransactions().size
+            if (txCount > 0) {
+                completeOnboarding()
+            }
+        }
+        return success
+    }
+
+    suspend fun sendPasswordReset(email: String): Boolean {
+        return repository.sendPasswordReset(email)
+    }
+
+    suspend fun updateUsername(username: String): Boolean {
+        return repository.updateUsername(username)
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            repository.signOut()
+            setOfflineGuest(false) // Wipes guest state also if signing out
+            refreshAuthState()
+        }
+    }
+
+    // Month Navigation
+    fun nextMonth() {
+        val next = _selectedCalendar.value.clone() as Calendar
+        next.add(Calendar.MONTH, 1)
+        _selectedCalendar.value = next
+    }
+
+    fun previousMonth() {
+        val prev = _selectedCalendar.value.clone() as Calendar
+        prev.add(Calendar.MONTH, -1)
+        _selectedCalendar.value = prev
+    }
+
+    // Mutators
+    fun addTransaction(type: String, categoryName: String, amount: Double, date: Long, note: String, receiptImageUri: String? = null) {
+        viewModelScope.launch {
+            repository.insertTransaction(
+                Transaction(
+                    type = type,
+                    categoryName = categoryName,
+                    amount = amount,
+                    date = date,
+                    note = note,
+                    receiptImageUri = receiptImageUri
+                )
+            )
+            
+            if (categoryName == "Savings") {
+                val matchTo = Regex("^To (.*) Vault").find(note)
+                val matchFrom = Regex("^From (.*) Vault").find(note)
+                val targetVaultName = matchTo?.groupValues?.get(1) ?: matchFrom?.groupValues?.get(1)
+                
+                if (targetVaultName != null) {
+                    val vaults = allSavingsVault.value
+                    val vault = vaults.find { it.assetType == targetVaultName }
+                    if (vault != null) {
+                        val newBalance = if (type == "EXPENSE") {
+                            vault.amount + amount
+                        } else {
+                            vault.amount - amount
+                        }
+                        repository.insertSavingsVault(vault.copy(amount = newBalance))
+                    }
+                }
+            }
+        }
+    }
+
+    fun deleteTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.deleteTransaction(transaction)
+        }
+    }
+
+    fun addCategory(name: String, type: String) {
+        viewModelScope.launch {
+            repository.insertCategory(
+                Category(name = name, type = type, isDefault = false)
+            )
+        }
+    }
+
+    fun deleteCategory(categoryId: Int) {
+        viewModelScope.launch {
+            repository.deleteCategory(categoryId)
+        }
+    }
+
+    fun addSavingsVault(assetType: String, amount: Double) {
+        viewModelScope.launch {
+            repository.insertSavingsVault(SavingsVault(assetType = assetType, amount = amount))
+        }
+    }
+
+    fun deleteSavingsVault(id: Int) {
+        viewModelScope.launch {
+            repository.deleteSavingsVault(id)
+        }
+    }
+    
+    fun getYearlySummary(year: Int): YearlySummary {
+        val allTx = allTransactions.value
+        val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        val monthlyData = mutableListOf<YearlySummaryRow>()
+        
+        var totalRecv = 0.0
+        var totalExp = 0.0
+        var totalSav = 0.0
+        var totalCash = 0.0
+        
+        var maxCash = Double.MIN_VALUE
+        var minCash = Double.MAX_VALUE
+        
+        for (monthIndex in 0..11) {
+            val monthTx = allTx.filter { tx ->
+                val cal = Calendar.getInstance().apply { timeInMillis = tx.date }
+                cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == monthIndex
+            }
+            
+            var recv = 0.0
+            var exp = 0.0
+            var sav = 0.0
+            var carry = 0.0
+            
+            for (tx in monthTx) {
+                if (tx.type == "INCOME") {
+                    if (tx.categoryName == "Savings") {
+                        sav -= tx.amount
+                    } else if (tx.categoryName == "Last Month Carryover") {
+                        carry += tx.amount
+                    } else {
+                        recv += tx.amount
+                    }
+                } else if (tx.type == "EXPENSE") {
+                    if (tx.categoryName == "Savings") {
+                        sav += tx.amount
+                    } else {
+                        exp += tx.amount
+                    }
+                }
+            }
+            
+            val cash = recv + carry - exp - sav
+            
+            totalRecv += recv
+            totalExp += exp
+            totalSav += sav
+            // cash is snapshot of that month's net balance, we don't sum it for yearly total, we recalculate total net cash
+            totalCash = totalRecv - totalExp - totalSav
+            
+            if (cash > maxCash) maxCash = cash
+            if (cash < minCash) minCash = cash
+            
+            monthlyData.add(YearlySummaryRow(months[monthIndex], recv, exp, sav, cash))
+        }
+        
+        val avgRow = YearlySummaryRow("Average", totalRecv/12, totalExp/12, totalSav/12, totalCash/12)
+        val maxRow = YearlySummaryRow("Max", monthlyData.maxOf { it.received }, monthlyData.maxOf { it.expenses }, monthlyData.maxOf { it.savings }, maxCash)
+        val minRow = YearlySummaryRow("Min", monthlyData.minOf { it.received }, monthlyData.minOf { it.expenses }, monthlyData.minOf { it.savings }, minCash)
+        val ttlRow = YearlySummaryRow("Total", totalRecv, totalExp, totalSav, totalCash)
+        
+        return YearlySummary(monthlyData, ttlRow, avgRow, maxRow, minRow)
+    }
+    
+    fun startNewYear(carryoverCash: Double, context: android.content.Context) {
+        val currCal = _selectedCalendar.value
+        val year = currCal.get(Calendar.YEAR)
+        
+        // 1. Archive to local JSON history
+        try {
+            val summary = getYearlySummary(year)
+            val file = java.io.File(context.filesDir, "archive_$year.json")
+            val content = buildString {
+                append("[\n")
+                summary.monthlyData.forEachIndexed { index, row ->
+                    append("  {\n")
+                    append("    \"month\": \"${row.month}\",\n")
+                    append("    \"received\": ${row.received},\n")
+                    append("    \"expenses\": ${row.expenses},\n")
+                    append("    \"savings\": ${row.savings},\n")
+                    append("    \"cash\": ${row.cash}\n")
+                    append("  }${if (index < summary.monthlyData.size - 1) "," else ""}\n")
+                }
+                append("]")
+            }
+            file.writeText(content)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        viewModelScope.launch {
+            // 2. Delete all transactions
+            for (tx in allTransactions.value) {
+                repository.deleteTransaction(tx)
+            }
+            // 3. Add Last Month Carryover to next year Jan 1st
+            val nextYearCal = Calendar.getInstance().apply {
+                set(Calendar.YEAR, year + 1)
+                set(Calendar.MONTH, Calendar.JANUARY)
+                set(Calendar.DAY_OF_MONTH, 1)
+            }
+            repository.insertTransaction(
+                Transaction(
+                    type = "INCOME",
+                    categoryName = "Last Month Carryover",
+                    amount = carryoverCash,
+                    date = nextYearCal.timeInMillis,
+                    note = "New year starting balance"
+                )
+            )
+            // Move pointer to next year
+            _selectedCalendar.value = nextYearCal
+        }
+    }
+}
+
+data class YearlySummaryRow(
+    val month: String,
+    val received: Double,
+    val expenses: Double,
+    val savings: Double,
+    val cash: Double
+)
+
+data class YearlySummary(
+    val monthlyData: List<YearlySummaryRow>,
+    val totalRow: YearlySummaryRow,
+    val averageRow: YearlySummaryRow,
+    val maxRow: YearlySummaryRow,
+    val minRow: YearlySummaryRow
+)
+
+data class CategoryAmount(
+    val categoryName: String,
+    val amount: Double
+)
+
+data class MonthlyStats(
+    val totalEarnings: Double,
+    val totalExpenses: Double,
+    val totalSavingsContributed: Double,
+    val cashBalance: Double,
+    val transactions: List<Transaction>,
+    val categoryExpenses: List<CategoryAmount>,
+    val categoryEarnings: List<CategoryAmount>
+)

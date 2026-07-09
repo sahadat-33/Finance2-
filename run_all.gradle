@@ -1,0 +1,48 @@
+rootProject {
+    tasks.register("checkApk") {
+        doLast {
+            def p = ["sh", "-c", "ls -la /APK_DOWNLOAD/"].execute()
+            p.waitFor()
+            println "=== INITIAL LS ==="
+            if (p.exitValue() != 0) {
+                println "Directory does not exist or error: " + p.err.text
+            } else {
+                println p.text
+            }
+        }
+    }
+    tasks.register("cleanCaches") {
+        doLast {
+            println "=== CLEANING ==="
+            def p = ["sh", "-c", "rm -rf ~/.gradle/caches .gradle app/build"].execute()
+            p.waitFor()
+        }
+    }
+    tasks.register("postBuildDiag") {
+        doLast {
+            println "=== POST BUILD DIAG ==="
+            println "ls -la app/build/outputs/apk/debug/ :"
+            def p1 = ["sh", "-c", "ls -la app/build/outputs/apk/debug/"].execute()
+            p1.waitFor()
+            println p1.text
+            
+            println "classes dex :"
+            def p2 = ["sh", "-c", "unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'classes[0-9]*\\.dex'"].execute()
+            p2.waitFor()
+            println p2.text
+            
+            println "firebase/firestore count :"
+            def p3 = ["sh", "-c", "unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -ciE 'firebase|firestore'"].execute()
+            p3.waitFor()
+            println p3.text
+            
+            println "copy to /APK_DOWNLOAD/ :"
+            def p4 = ["sh", "-c", "mkdir -p /APK_DOWNLOAD && cp app/build/outputs/apk/debug/app-debug.apk /APK_DOWNLOAD/app-debug.apk && ls -la /APK_DOWNLOAD/"].execute()
+            p4.waitFor()
+            println p4.text
+            if (p4.exitValue() != 0) {
+                println "Error: " + p4.err.text
+            }
+        }
+    }
+}

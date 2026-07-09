@@ -1,0 +1,14 @@
+rootProject {
+    tasks.register("diag") {
+        doLast {
+            println "=== LS OUTPUT ==="
+            println(["sh", "-c", "ls -la app/build/outputs/apk/debug/"].execute().text)
+            
+            println "=== UNZIP OUTPUT ==="
+            println(["sh", "-c", "unzip -l app/build/outputs/apk/debug/app-debug.apk"].execute().text)
+            
+            println "=== FIND OUTPUT ==="
+            println(["sh", "-c", "find . -name '*.dex' -exec ls -la {} \\;"].execute().text)
+        }
+    }
+}

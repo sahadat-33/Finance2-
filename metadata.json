@@ -1,0 +1,6 @@
+{
+  "name": "Finance Tracker",
+  "description": "A beautiful localized Personal Finance app with adaptive Material 3 widgets, Room storage database, quick-add ledgers, and savings vault tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
