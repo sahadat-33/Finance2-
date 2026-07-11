@@ -62,6 +62,18 @@ class CloudSyncManager(private val dao: FinanceDao) {
         }
     }
 
+    suspend fun deleteDocument(collectionPath: String, docId: String) {
+        if (firestore == null || auth == null) return
+        val user = auth?.currentUser ?: return
+        if (!user.isEmailVerified) return
+        try {
+            firestore!!.collection("users").document(user.uid)
+                .collection(collectionPath).document(docId).delete().await()
+        } catch (e: Exception) {
+            Log.e("CloudSync", "Failed to delete document: ${e.message}")
+        }
+    }
+
     suspend fun updateUserCurrency(symbol: String) {
         if (firestore == null || auth == null) return
         val user = auth?.currentUser ?: return
@@ -141,6 +153,50 @@ class CloudSyncManager(private val dao: FinanceDao) {
             Log.d("CloudSync", "Successfully pulled data from cloud flat collections.")
         } catch (e: Exception) {
             Log.e("CloudSync", "Failed to fetch from cloud: ${e.message}")
+        }
+    }
+
+    suspend fun cleanupDuplicateCategories() {
+        if (firestore == null || auth == null) return
+        val user = auth?.currentUser ?: return
+        if (!user.isEmailVerified) return
+        
+        try {
+            val catRef = firestore!!.collection("users").document(user.uid).collection("categories")
+            val snapshot = catRef.get().await()
+            
+            // Group by name + type
+            val categoryGroups = mutableMapOf<String, MutableList<Category>>()
+            for (doc in snapshot.documents) {
+                val data = doc.data ?: continue
+                try {
+                    val cat = Category.fromMap(data)
+                    val key = "${cat.name}_${cat.type}"
+                    if (!categoryGroups.containsKey(key)) {
+                        categoryGroups[key] = mutableListOf()
+                    }
+                    categoryGroups[key]!!.add(cat)
+                } catch(e: Exception) {}
+            }
+            
+            for ((_, cats) in categoryGroups) {
+                if (cats.size > 1) {
+                    // Keep the first one (surviving one), delete the rest
+                    // (Note: Transactions use categoryName as String, so no re-linking is technically required in the DB schema)
+                    val duplicates = cats.drop(1)
+                    
+                    for (dup in duplicates) {
+                        catRef.document(dup.uuid).delete().await()
+                        
+                        // Delete from local DB too to keep in sync
+                        dao.getAllCategories().find { it.uuid == dup.uuid }?.let { localCat ->
+                            dao.deleteCategoryById(localCat.id)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("CloudSync", "Failed to cleanup duplicates: ${e.message}")
         }
     }
 }

@@ -74,8 +74,6 @@ class FinanceRepository(private val context: Context) {
             val isClean = dao.getAllTransactions().isEmpty()
             if (authManager.isUserSignedIn && isClean) {
                 cloudSyncManager.fetchFromCloud()
-            } else if (isClean) {
-                initializeDatabaseIfEmpty()
             } else if (authManager.isUserSignedIn && isCloudSyncEnabled) {
                 // Background sync
                 triggerImmediateSync()
@@ -85,12 +83,20 @@ class FinanceRepository(private val context: Context) {
 
     suspend fun createAccount(email: String, pass: String, username: String): Boolean = withContext(Dispatchers.IO) {
         val success = authManager.createAccount(email, pass, username)
+        if (success) {
+            val isClean = dao.getAllTransactions().isEmpty() && dao.getAllCategoriesFlow().first().isEmpty()
+            if (isClean) {
+                initializeDatabaseIfEmpty()
+                triggerImmediateSync()
+            }
+        }
         return@withContext success
     }
 
     suspend fun login(email: String, pass: String): Boolean = withContext(Dispatchers.IO) {
         val success = authManager.login(email, pass)
         if (success) {
+            cloudSyncManager.cleanupDuplicateCategories()
             cloudSyncManager.fetchFromCloud()
             triggerImmediateSync()
         }
@@ -149,11 +155,16 @@ class FinanceRepository(private val context: Context) {
                 }
             }
         }
+        cloudSyncManager.deleteDocument("transactions", transaction.uuid)
         triggerImmediateSync()
     }
 
     suspend fun deleteCategory(categoryId: Int) = withContext(Dispatchers.IO) {
+        val cat = dao.getCategoryById(categoryId)
         dao.deleteCategoryById(categoryId)
+        if (cat != null) {
+            cloudSyncManager.deleteDocument("categories", cat.uuid)
+        }
         triggerImmediateSync()
     }
 
@@ -163,7 +174,11 @@ class FinanceRepository(private val context: Context) {
     }
 
     suspend fun deleteSavingsVault(vaultId: Int) = withContext(Dispatchers.IO) {
+        val vault = dao.getSavingsVaultById(vaultId)
         dao.deleteSavingsVaultById(vaultId)
+        if (vault != null) {
+            cloudSyncManager.deleteDocument("savings", vault.uuid)
+        }
         triggerImmediateSync()
     }
 
@@ -193,7 +208,7 @@ class FinanceRepository(private val context: Context) {
         return allVaults.firstOrNull()?.assetType
     }
 
-    private suspend fun initializeDatabaseIfEmpty() {
+    suspend fun initializeDatabaseIfEmpty() {
         val categories = dao.getAllCategoriesFlow().first()
         if (categories.isEmpty()) {
             // 1. Insert Minimalist Categories

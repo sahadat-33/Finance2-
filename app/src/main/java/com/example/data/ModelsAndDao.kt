@@ -90,6 +90,9 @@ interface FinanceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category)
 
+    @Query("SELECT * FROM categories WHERE id = :id")
+    suspend fun getCategoryById(id: Int): Category?
+    
     @Query("DELETE FROM categories WHERE id = :id")
     suspend fun deleteCategoryById(id: Int)
 
@@ -102,6 +105,9 @@ interface FinanceDao {
     @Query("UPDATE savings_vault SET amount = :amount WHERE assetType = :assetType")
     suspend fun updateSavingsAmount(assetType: String, amount: Double)
 
+    @Query("SELECT * FROM savings_vault WHERE id = :id")
+    suspend fun getSavingsVaultById(id: Int): SavingsVault?
+    
     @Query("DELETE FROM savings_vault WHERE id = :id")
     suspend fun deleteSavingsVaultById(id: Int)
 

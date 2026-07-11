@@ -61,6 +61,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     suspend fun enableOfflineGuest() {
         sharedPrefs.edit().putBoolean("isOfflineGuest", true).apply()
         _isOfflineGuest.value = true
+        repository.initializeDatabaseIfEmpty()
         val txCount = repository.dao.getAllTransactions().size
         if (txCount > 0) {
             completeOnboarding()
