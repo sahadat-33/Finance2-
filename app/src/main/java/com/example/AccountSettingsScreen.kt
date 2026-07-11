@@ -181,6 +181,15 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
                 ) {
                     Text("Sign Out", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onError)
                 }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Version ${com.example.BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         }
     }
