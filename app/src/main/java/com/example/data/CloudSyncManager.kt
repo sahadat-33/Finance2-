@@ -24,11 +24,11 @@ class CloudSyncManager(private val dao: FinanceDao) {
         }
     }
 
-    suspend fun syncToCloud() {
-        if (firestore == null || auth == null) return
-        val user = auth?.currentUser ?: return
+    suspend fun syncToCloud(): Boolean {
+        if (firestore == null || auth == null) return false
+        val user = auth?.currentUser ?: return false
         try { user.reload().await() } catch(e: Exception) {}
-        if (!user.isEmailVerified) return
+        if (!user.isEmailVerified) return false
 
         try {
             val transactions = dao.getAllTransactions()
@@ -57,8 +57,10 @@ class CloudSyncManager(private val dao: FinanceDao) {
             }
 
             Log.d("CloudSync", "Successfully pushed data to cloud flat collections.")
+            return true
         } catch (e: Exception) {
             Log.e("CloudSync", "Failed to sync to cloud: ${e.message}")
+            return false
         }
     }
 

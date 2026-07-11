@@ -26,6 +26,10 @@ class FinanceRepository(private val context: Context) {
     
     private val isCloudSyncEnabled: Boolean
         get() = sharedPrefs.getBoolean("cloud_sync_enabled", true)
+        
+    fun saveLastSyncTime() {
+        sharedPrefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply()
+    }
 
     private fun schedulePeriodicSync() {
         if (!isCloudSyncEnabled) return
@@ -48,7 +52,10 @@ class FinanceRepository(private val context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 kotlinx.coroutines.withTimeout(5000L) {
-                    cloudSyncManager.syncToCloud()
+                    val success = cloudSyncManager.syncToCloud()
+                    if (success) {
+                        saveLastSyncTime()
+                    }
                 }
             } catch (e: Exception) {
                 // Queue for later if immediate sync fails or times out

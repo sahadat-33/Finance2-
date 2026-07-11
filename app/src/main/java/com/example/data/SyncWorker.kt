@@ -16,7 +16,13 @@ class SyncWorker(
             val database = DatabaseProvider.getDatabase(applicationContext)
             
             val cloudSyncManager = CloudSyncManager(database.dao)
-            cloudSyncManager.syncToCloud()
+            val success = cloudSyncManager.syncToCloud()
+            
+            if (success) {
+                applicationContext.getSharedPreferences("taka_tracker_prefs", Context.MODE_PRIVATE)
+                    .edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply()
+            }
+            
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()

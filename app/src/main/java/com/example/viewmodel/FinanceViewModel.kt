@@ -39,15 +39,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     private val _isOnboardingComplete = MutableStateFlow(sharedPrefs.getBoolean("isOnboardingComplete", false))
     val isOnboardingComplete: StateFlow<Boolean> = _isOnboardingComplete.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            val count = repository.dao.getAllTransactions().size
-            if (count > 0 && !sharedPrefs.getBoolean("isOnboardingComplete", false)) {
-                completeOnboarding()
-            }
-        }
-    }
-
     fun completeOnboarding() {
         sharedPrefs.edit().putBoolean("isOnboardingComplete", true).apply()
         _isOnboardingComplete.value = true
@@ -78,6 +69,25 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     private val _isCloudSyncEnabled = MutableStateFlow(sharedPrefs.getBoolean("cloud_sync_enabled", true))
     val isCloudSyncEnabled: StateFlow<Boolean> = _isCloudSyncEnabled.asStateFlow()
+
+    private val _lastSyncTimestamp = MutableStateFlow(sharedPrefs.getLong("last_sync_timestamp", 0L))
+    val lastSyncTimestamp: StateFlow<Long> = _lastSyncTimestamp.asStateFlow()
+    
+    private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+        if (key == "last_sync_timestamp") {
+            _lastSyncTimestamp.value = sharedPreferences.getLong(key, 0L)
+        }
+    }
+
+    init {
+        sharedPrefs.registerOnSharedPreferenceChangeListener(prefListener)
+        viewModelScope.launch {
+            val count = repository.dao.getAllTransactions().size
+            if (count > 0 && !sharedPrefs.getBoolean("isOnboardingComplete", false)) {
+                completeOnboarding()
+            }
+        }
+    }
 
     fun setCloudSyncEnabled(enabled: Boolean) {
         sharedPrefs.edit().putBoolean("cloud_sync_enabled", enabled).apply()
