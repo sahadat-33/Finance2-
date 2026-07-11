@@ -45,6 +45,10 @@ fun TimelineScreen(
     viewModel: FinanceViewModel,
     modifier: Modifier = Modifier
 ) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.triggerFetchFromCloud()
+    }
+
     val currencySymbol by viewModel.currencySymbol.collectAsState()
     val stats by viewModel.monthlyStatsFlow.collectAsState()
     val transactions = stats.transactions // Flow filtered by active month

@@ -33,6 +33,10 @@ import java.util.Calendar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YearlySummaryScreen(viewModel: FinanceViewModel) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.triggerFetchFromCloud()
+    }
+
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     

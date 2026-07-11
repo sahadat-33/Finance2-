@@ -41,6 +41,10 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.triggerFetchFromCloud()
+    }
+
     val currencySymbol by viewModel.currencySymbol.collectAsState()
     val selectedCalendar by viewModel.selectedCalendar.collectAsState()
     val stats by viewModel.monthlyStatsFlow.collectAsState()

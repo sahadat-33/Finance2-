@@ -89,7 +89,19 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+
+    fun triggerFetchFromCloud() {
+        if (!isCloudSyncEnabled.value) return
+        viewModelScope.launch {
+            val success = repository.cloudSyncManager.fetchFromCloud()
+            if (success) {
+                repository.saveLastSyncTime()
+            }
+        }
+    }
+    
     fun setCloudSyncEnabled(enabled: Boolean) {
+
         sharedPrefs.edit().putBoolean("cloud_sync_enabled", enabled).apply()
         _isCloudSyncEnabled.value = enabled
     }
@@ -453,7 +465,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                         } else {
                             vault.amount - amount
                         }
-                        repository.insertSavingsVault(vault.copy(amount = newBalance))
+                        repository.insertSavingsVault(vault.copy(amount = newBalance, updatedAt = System.currentTimeMillis()))
                     }
                 }
             }

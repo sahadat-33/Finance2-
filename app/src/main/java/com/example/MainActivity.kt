@@ -75,6 +75,8 @@ class MainActivity : ComponentActivity() {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_STOP) {
                         viewModel.lockApp()
+                    } else if (event == Lifecycle.Event.ON_RESUME) {
+                        viewModel.triggerFetchFromCloud()
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)

@@ -105,56 +105,66 @@ class CloudSyncManager(private val dao: FinanceDao) {
         }
     }
 
-    suspend fun fetchFromCloud() {
-        if (firestore == null || auth == null) return
-        val user = auth?.currentUser ?: return
+    suspend fun fetchFromCloud(): Boolean {
+        if (firestore == null || auth == null) return false
+        val user = auth?.currentUser ?: return false
         try { user.reload().await() } catch(e: Exception) {}
-        if (!user.isEmailVerified) return
-
+        if (!user.isEmailVerified) return false
+        
         try {
-            // Upload local transactions first to ensure no wipe
-            syncToCloud()
-
-            // Pull remaining from cloud
+            // First fetch cloud data, then merge.
             val transactionsSnapshot = firestore!!.collection("users").document(user.uid).collection("transactions").get().await()
-            val existingTxUuids = dao.getAllTransactions().map { it.uuid }.toSet()
+            val localTx = dao.getAllTransactions().associateBy { it.uuid }
             for (doc in transactionsSnapshot.documents) {
                 val data = doc.data ?: continue
                 try {
-                    val tx = Transaction.fromMap(data)
-                    if (!existingTxUuids.contains(tx.uuid)) {
-                        dao.insertTransaction(tx.copy(id = 0))
+                    val remoteTx = Transaction.fromMap(data)
+                    val local = localTx[remoteTx.uuid]
+                    if (local == null) {
+                        dao.insertTransaction(remoteTx.copy(id = 0))
+                    } else if (remoteTx.updatedAt > local.updatedAt) {
+                        dao.insertTransaction(remoteTx.copy(id = local.id))
                     }
                 } catch (e: Exception) { }
             }
 
             val savingsSnapshot = firestore!!.collection("users").document(user.uid).collection("savings").get().await()
-            val existingSvUuids = dao.getAllSavingsVaults().map { it.uuid }.toSet()
+            val localSv = dao.getAllSavingsVaults().associateBy { it.uuid }
             for (doc in savingsSnapshot.documents) {
                 val data = doc.data ?: continue
                 try {
-                    val sv = SavingsVault.fromMap(data)
-                    if (!existingSvUuids.contains(sv.uuid)) {
-                        dao.insertSavingsVault(sv.copy(id = 0))
+                    val remoteSv = SavingsVault.fromMap(data)
+                    val local = localSv[remoteSv.uuid]
+                    if (local == null) {
+                        dao.insertSavingsVault(remoteSv.copy(id = 0))
+                    } else if (remoteSv.updatedAt > local.updatedAt) {
+                        dao.insertSavingsVault(remoteSv.copy(id = local.id))
                     }
                 } catch(e: Exception) {}
             }
 
             val categorySnapshot = firestore!!.collection("users").document(user.uid).collection("categories").get().await()
-            val existingCatUuids = dao.getAllCategories().map { it.uuid }.toSet()
+            val localCat = dao.getAllCategories().associateBy { it.uuid }
             for (doc in categorySnapshot.documents) {
                 val data = doc.data ?: continue
                 try {
-                    val cat = Category.fromMap(data)
-                    if (!existingCatUuids.contains(cat.uuid)) {
-                        dao.insertCategory(cat.copy(id = 0))
+                    val remoteCat = Category.fromMap(data)
+                    val local = localCat[remoteCat.uuid]
+                    if (local == null) {
+                        dao.insertCategory(remoteCat.copy(id = 0))
+                    } else if (remoteCat.updatedAt > local.updatedAt) {
+                        dao.insertCategory(remoteCat.copy(id = local.id))
                     }
                 } catch(e: Exception) {}
             }
 
+            // Sync the merged local back to cloud 
+            val syncSuccess = syncToCloud()
             Log.d("CloudSync", "Successfully pulled data from cloud flat collections.")
+            return syncSuccess
         } catch (e: Exception) {
             Log.e("CloudSync", "Failed to fetch from cloud: ${e.message}")
+            return false
         }
     }
 
