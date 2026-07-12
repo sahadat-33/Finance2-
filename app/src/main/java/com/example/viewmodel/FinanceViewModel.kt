@@ -232,28 +232,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     val allSavingsVault: StateFlow<List<SavingsVault>> = repository.getAllSavingsVault()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val dynamicVaultBalances: StateFlow<List<SavingsVault>> = combine(
-        allTransactions,
-        allSavingsVault
-    ) { transactions, vaults ->
-        vaults.map { vault ->
-            var currentBalance = 0.0
-            transactions.filter { it.categoryName == "Savings" }.forEach { tx ->
-                val matchTo = Regex("^To (.*) Vault").find(tx.note)
-                val matchFrom = Regex("^From (.*) Vault").find(tx.note)
-                val targetVaultName = matchTo?.groupValues?.get(1) ?: matchFrom?.groupValues?.get(1)
-                
-                if (targetVaultName == vault.assetType) {
-                    if (tx.type == "EXPENSE") {
-                        currentBalance += tx.amount
-                    } else if (tx.type == "INCOME") {
-                        currentBalance -= tx.amount
-                    }
-                }
-            }
-            vault.copy(amount = currentBalance)
-        }.filter { it.amount > 0.0 || vaults.size == 1 } // Optionally filter out 0 balances if needed, or keep all.
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val dynamicVaultBalances: StateFlow<List<SavingsVault>> = allSavingsVault
+        .map { vaults ->
+            vaults.filter { it.amount > 0.0 || vaults.size == 1 }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Filtered & Computed States for Selected Month
     val monthlyStatsFlow: StateFlow<MonthlyStats> = combine(
@@ -273,17 +255,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         var totalEarnings = 0.0
         var totalExpenses = 0.0
         var totalSavingsContributed = 0.0
-        var carryover = 0.0
 
         for (tx in monthlyTransactions) {
             if (tx.type == "INCOME") {
-                if (tx.categoryName == "Savings") {
-                    totalSavingsContributed -= tx.amount
-                } else if (tx.categoryName == "Last Month Carryover") {
-                    carryover += tx.amount
-                } else {
-                    totalEarnings += tx.amount
-                }
+                totalEarnings += tx.amount
             } else if (tx.type == "EXPENSE") {
                 if (tx.categoryName == "Savings") {
                     totalSavingsContributed += tx.amount
@@ -293,7 +268,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        val cashBalance = totalEarnings + carryover - totalExpenses - totalSavingsContributed
+        val cashBalance = totalEarnings - totalExpenses - totalSavingsContributed
 
         // Expenses breakdown by category
         val expenseTransactions = monthlyTransactions.filter { it.type == "EXPENSE" }
@@ -450,25 +425,6 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                     receiptImageUri = receiptImageUri
                 )
             )
-            
-            if (categoryName == "Savings") {
-                val matchTo = Regex("^To (.*) Vault").find(note)
-                val matchFrom = Regex("^From (.*) Vault").find(note)
-                val targetVaultName = matchTo?.groupValues?.get(1) ?: matchFrom?.groupValues?.get(1)
-                
-                if (targetVaultName != null) {
-                    val vaults = allSavingsVault.value
-                    val vault = vaults.find { it.assetType == targetVaultName }
-                    if (vault != null) {
-                        val newBalance = if (type == "EXPENSE") {
-                            vault.amount + amount
-                        } else {
-                            vault.amount - amount
-                        }
-                        repository.insertSavingsVault(vault.copy(amount = newBalance, updatedAt = System.currentTimeMillis()))
-                    }
-                }
-            }
         }
     }
 
