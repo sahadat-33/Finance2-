@@ -297,7 +297,7 @@ fun SettingsScreen(
             }
         }
         
-        if (isUserSignedIn && !viewModel.isEmailVerified) {
+        if (isUserSignedIn && !viewModel.isEmailVerifiedFlow.value) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),

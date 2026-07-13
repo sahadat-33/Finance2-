@@ -14,13 +14,13 @@ data class Category(
 ) {
     fun toMap(): Map<String, Any> = mapOf("id" to id, "name" to name, "type" to type, "isDefault" to isDefault, "updatedAt" to updatedAt, "uuid" to uuid)
     companion object {
-        fun fromMap(map: Map<String, Any>): Category = Category(
+        fun fromMap(map: Map<String, Any>, docId: String? = null): Category = Category(
             id = (map["id"] as? Number)?.toInt() ?: 0,
             name = map["name"] as? String ?: "",
             type = map["type"] as? String ?: "",
             isDefault = map["isDefault"] as? Boolean ?: false,
             updatedAt = (map["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
-            uuid = map["uuid"] as? String ?: java.util.UUID.randomUUID().toString()
+            uuid = map["uuid"] as? String ?: docId ?: java.util.UUID.randomUUID().toString()
         )
     }
 }
@@ -42,7 +42,7 @@ data class Transaction(
         "date" to date, "note" to note, "receiptImageUri" to (receiptImageUri ?: ""), "updatedAt" to updatedAt, "uuid" to uuid
     )
     companion object {
-        fun fromMap(map: Map<String, Any>): Transaction = Transaction(
+        fun fromMap(map: Map<String, Any>, docId: String? = null): Transaction = Transaction(
             id = (map["id"] as? Number)?.toInt() ?: 0,
             type = map["type"] as? String ?: "",
             categoryName = map["categoryName"] as? String ?: "",
@@ -51,7 +51,7 @@ data class Transaction(
             note = map["note"] as? String ?: "",
             receiptImageUri = (map["receiptImageUri"] as? String).takeIf { !it.isNullOrBlank() },
             updatedAt = (map["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
-            uuid = map["uuid"] as? String ?: java.util.UUID.randomUUID().toString()
+            uuid = map["uuid"] as? String ?: docId ?: java.util.UUID.randomUUID().toString()
         )
     }
 }
@@ -66,12 +66,12 @@ data class SavingsVault(
 ) {
     fun toMap(): Map<String, Any> = mapOf("id" to id, "assetType" to assetType, "amount" to amount, "updatedAt" to updatedAt, "uuid" to uuid)
     companion object {
-        fun fromMap(map: Map<String, Any>): SavingsVault = SavingsVault(
+        fun fromMap(map: Map<String, Any>, docId: String? = null): SavingsVault = SavingsVault(
             id = (map["id"] as? Number)?.toInt() ?: 0,
             assetType = map["assetType"] as? String ?: "",
             amount = (map["amount"] as? Number)?.toDouble() ?: 0.0,
             updatedAt = (map["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
-            uuid = map["uuid"] as? String ?: java.util.UUID.randomUUID().toString()
+            uuid = map["uuid"] as? String ?: docId ?: java.util.UUID.randomUUID().toString()
         )
     }
 }

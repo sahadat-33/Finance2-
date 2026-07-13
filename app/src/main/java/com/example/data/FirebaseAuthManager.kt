@@ -85,4 +85,21 @@ class FirebaseAuthManager(context: Context) {
     fun signOut() {
         auth?.signOut()
     }
+
+
+    val isEmailVerified: Boolean
+        get() = auth?.currentUser?.isEmailVerified ?: false
+
+    suspend fun checkEmailVerification(): Boolean {
+        return try {
+            auth?.currentUser?.reload()?.await()
+            auth?.currentUser?.isEmailVerified ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    val currentUser: com.google.firebase.auth.FirebaseUser?
+        get() = auth?.currentUser
+
 }

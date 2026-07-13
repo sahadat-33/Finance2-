@@ -103,7 +103,7 @@ class FinanceRepository(private val context: Context) {
     suspend fun login(email: String, pass: String): Boolean = withContext(Dispatchers.IO) {
         val success = authManager.login(email, pass)
         if (success) {
-            cloudSyncManager.cleanupDuplicateCategories()
+            cloudSyncManager.cleanupDuplicates()
             cloudSyncManager.fetchFromCloud()
             triggerImmediateSync()
         }

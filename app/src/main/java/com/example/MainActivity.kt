@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
                         com.example.ui.WelcomeAuthScreen(
                             viewModel = viewModel,
                             onLoginSuccess = { 
-                                if (!viewModel.isEmailVerified) {
+                                if (!viewModel.isEmailVerifiedFlow.value) {
                                     rootNavController.navigate("verification") { popUpTo("welcome_auth") { inclusive = true } }
                                 } else if (!viewModel.isOnboardingComplete.value) {
                                     rootNavController.navigate("onboarding_balance") { popUpTo("welcome_auth") { inclusive = true } }

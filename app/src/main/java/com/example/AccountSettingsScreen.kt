@@ -24,8 +24,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
-    var username by remember { mutableStateOf(viewModel.currentUserName) }
-    var email by remember { mutableStateOf(viewModel.currentUserEmail) }
+    var username by remember { mutableStateOf(viewModel.currentUserName ?: "") }
+    var email by remember { mutableStateOf(viewModel.currentUserEmail ?: "") }
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     
