@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.ModeNight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: FinanceViewModel = viewModel()
             val isDarkMode by viewModel.isDarkMode.collectAsState()
+            val appTheme by viewModel.appTheme.collectAsState()
             val isAppLocked by viewModel.isAppLocked.collectAsState()
             val isOfflineGuest by viewModel.isOfflineGuest.collectAsState()
             val isUserSignedIn by viewModel.isUserSignedInFlow.collectAsState()
@@ -85,7 +88,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            FinanceTrackerTheme(darkTheme = isDarkMode) {
+            FinanceTrackerTheme(darkTheme = isDarkMode, themeName = appTheme) {
                 val rootNavController = rememberNavController()
 
                 val startDest = remember(showAuthScreen, isUserSignedIn, isEmailVerified, isOnboardingComplete) {
@@ -201,7 +204,7 @@ class MainActivity : ComponentActivity() {
                                         onClick = { viewModel.toggleDarkMode(!isDarkMode) },
                                         modifier = Modifier.testTag("theme_toggle_btn")
                                     ) {
-                                        Text(text = if (isDarkMode) "☀️" else "🌙")
+                                        Icon(imageVector = if (isDarkMode) Icons.Default.WbSunny else Icons.Default.ModeNight, contentDescription = "Toggle Theme", tint = MaterialTheme.colorScheme.primary)
                                     }
                                 },
                                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(

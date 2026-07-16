@@ -13,6 +13,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.border
+
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.CheckCircle
+
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarToday
@@ -56,6 +62,7 @@ fun SettingsScreen(
     val categories by viewModel.allCategories.collectAsState()
     val savingsVaults by viewModel.allSavingsVault.collectAsState()
     val isDarkTheme by viewModel.isDarkMode.collectAsState()
+    val appTheme by viewModel.appTheme.collectAsState()
     val isCloudSyncEnabled by viewModel.isCloudSyncEnabled.collectAsState()
 
     val context = LocalContext.current
@@ -149,6 +156,8 @@ fun SettingsScreen(
 
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showVaultDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    val themes = listOf("Mint Fresh", "Midnight Dark", "Ocean Blue", "Sunset Warm", "Lavender Calm", "Rose Soft")
     var showCurrencyDialog by remember { mutableStateOf(false) }
 
     if (showCurrencyDialog) {
@@ -260,6 +269,66 @@ fun SettingsScreen(
             }
         }
     }
+
+    if (showThemeDialog) {
+        Dialog(onDismissRequest = { showThemeDialog = false }) {
+            Card(modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(max = 600.dp), shape = RoundedCornerShape(24.dp)) {
+                Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("App Theme", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    
+                    themes.forEach { themeName ->
+                        val isSelected = appTheme == themeName
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setAppTheme(themeName); showThemeDialog = false },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier.size(24.dp).clip(CircleShape).background(
+                                            when (themeName) {
+                                                "Mint Fresh" -> Color(0xFF30BA8C)
+                                                "Midnight Dark" -> Color(0xFF191C1B)
+                                                "Ocean Blue" -> Color(0xFF2196F3)
+                                                "Sunset Warm" -> Color(0xFFFF9800)
+                                                "Lavender Calm" -> Color(0xFF9C27B0)
+                                                "Rose Soft" -> Color(0xFFE91E63)
+                                                else -> MaterialTheme.colorScheme.primary
+                                            }
+                                        ).border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha=0.5f), CircleShape)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        themeName,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { showThemeDialog = false }, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+                }
+            }
+        }
+    }
+
 
     Column(
         modifier = modifier
@@ -383,6 +452,7 @@ fun SettingsScreen(
 
                 HorizontalDivider()
 
+
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable { showVaultDialog = true }.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -390,6 +460,18 @@ fun SettingsScreen(
                 ) {
                     Text("Manage Savings Vaults", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
+                
+                HorizontalDivider()
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { showThemeDialog = true }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("App Theme", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(appTheme, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+
             }
         }
 
@@ -536,7 +618,7 @@ fun SettingsScreen(
         
         Spacer(modifier = Modifier.height(32.dp))
         
-        Text("Designed & Developed by Sahadat Hossan", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 32.dp))
+        Text("Made with ❤️ by Sahadat", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 32.dp))
     }
 }
 

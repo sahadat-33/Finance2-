@@ -1,4 +1,6 @@
-package com.example.ui.theme
+import re
+
+content = """package com.example.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -230,3 +232,6 @@ fun FinanceTrackerTheme(
         content = content
     )
 }
+"""
+with open('app/src/main/java/com/example/ui/theme/Theme.kt', 'w') as f:
+    f.write(content)

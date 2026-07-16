@@ -21,6 +21,14 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     private val sharedPrefs = application.getSharedPreferences("taka_tracker_prefs", android.content.Context.MODE_PRIVATE)
     private val _isDarkMode = MutableStateFlow(sharedPrefs.getBoolean("dark_mode", false))
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+    
+    private val _appTheme = MutableStateFlow(sharedPrefs.getString("app_theme", "Mint Fresh") ?: "Mint Fresh")
+    val appTheme: StateFlow<String> = _appTheme.asStateFlow()
+
+    fun setAppTheme(themeName: String) {
+        sharedPrefs.edit().putString("app_theme", themeName).apply()
+        _appTheme.value = themeName
+    }
 
     private val _currencySymbol = MutableStateFlow(sharedPrefs.getString("currency_symbol", "৳") ?: "৳")
     val currencySymbol: StateFlow<String> = _currencySymbol.asStateFlow()
