@@ -15,7 +15,40 @@ class FirebaseAuthManager(context: Context) {
             FirebaseApp.getInstance()
         } catch (e: Exception) {
             Log.e("Firebase", "Failed to init Firebase: ${e.message}")
+        
+    suspend fun reauthenticate(password: String): Boolean {
+        val user = auth?.currentUser ?: return false
+        val email = user.email ?: return false
+        return try {
+            val credential = com.google.firebase.auth.EmailAuthProvider.getCredential(email, password)
+            user.reauthenticate(credential).await()
+            true
+        } catch (e: Exception) {
+            false
         }
+    }
+
+    suspend fun updateEmail(newEmail: String): Boolean {
+        val user = auth?.currentUser ?: return false
+        return try {
+            user.updateEmail(newEmail).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun deleteAccount(): Boolean {
+        val user = auth?.currentUser ?: return false
+        return try {
+            user.delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+}
+
     }
 
     val auth: FirebaseAuth? by lazy { 
@@ -28,6 +61,9 @@ class FirebaseAuthManager(context: Context) {
 
     val isUserSignedIn: Boolean
         get() = auth?.currentUser != null
+
+    val currentUserId: String?
+        get() = auth?.currentUser?.uid
 
     suspend fun createAccount(email: String, pass: String, username: String): Boolean {
         return try {
@@ -102,4 +138,36 @@ class FirebaseAuthManager(context: Context) {
     val currentUser: com.google.firebase.auth.FirebaseUser?
         get() = auth?.currentUser
 
+
+    suspend fun reauthenticate(password: String): Boolean {
+        val user = auth?.currentUser ?: return false
+        val email = user.email ?: return false
+        return try {
+            val credential = com.google.firebase.auth.EmailAuthProvider.getCredential(email, password)
+            user.reauthenticate(credential).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun updateEmail(newEmail: String): Boolean {
+        val user = auth?.currentUser ?: return false
+        return try {
+            user.updateEmail(newEmail).await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun deleteAccount(): Boolean {
+        val user = auth?.currentUser ?: return false
+        return try {
+            user.delete().await()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
 }

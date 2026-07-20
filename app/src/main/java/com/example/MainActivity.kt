@@ -38,6 +38,8 @@ import androidx.navigation.compose.rememberNavController
 import com.example.ui.AddTransactionDialog
 import com.example.ui.DashboardScreen
 import com.example.ui.SettingsScreen
+import com.example.ui.OthersScreen
+import com.example.ui.UpdateScreen
 import com.example.ui.TimelineScreen
 import com.example.ui.theme.FinanceTrackerTheme
 import com.example.viewmodel.FinanceViewModel
@@ -346,8 +348,15 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 viewModel = viewModel,
                                 onNavigateToProfile = { navController.navigate("profile") },
-                                onNavigateToAuth = { rootNavController.navigate("welcome_auth") }
+                                onNavigateToAuth = { rootNavController.navigate("welcome_auth") },
+                                onNavigateToOthers = { navController.navigate("others") }
                             )
+                        }
+                        composable("others") {
+                            OthersScreen(viewModel = viewModel, onBack = { navController.popBackStack() }, onNavigateToUpdate = { navController.navigate("update") })
+                        }
+                        composable("update") {
+                            UpdateScreen(onBack = { navController.popBackStack() })
                         }
                         composable("profile") {
                             AccountSettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })

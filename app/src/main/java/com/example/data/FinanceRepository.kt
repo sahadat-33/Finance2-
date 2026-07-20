@@ -249,4 +249,16 @@ class FinanceRepository(private val context: Context) {
         cal.set(Calendar.DAY_OF_MONTH, day)
         return cal.timeInMillis
     }
+
+    suspend fun reauthenticate(password: String): Boolean = withContext(Dispatchers.IO) {
+        return@withContext authManager.reauthenticate(password)
+    }
+
+    suspend fun updateEmail(newEmail: String): Boolean = withContext(Dispatchers.IO) {
+        return@withContext authManager.updateEmail(newEmail)
+    }
+
+    suspend fun deleteAccount(): Boolean = withContext(Dispatchers.IO) {
+        return@withContext authManager.deleteAccount()
+    }
 }

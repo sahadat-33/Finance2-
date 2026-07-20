@@ -476,6 +476,22 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         return YearlySummary(monthlyData, ttlRow, avgRow, maxRow, minRow)
     }
 
+
+    suspend fun reauthenticate(password: String): Boolean {
+        return repository.reauthenticate(password)
+    }
+
+    suspend fun updateEmail(newEmail: String): Boolean {
+        return repository.updateEmail(newEmail)
+    }
+
+    suspend fun deleteAccount(): Boolean {
+        return repository.deleteAccount()
+    }
+    
+    val currentUserId: String?
+        get() = repository.authManager.auth?.currentUser?.uid
+
     fun startNewYear(carryoverCash: Double, context: android.content.Context) {
         val currCal = _selectedCalendar.value
         val year = currCal.get(Calendar.YEAR)

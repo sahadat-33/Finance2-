@@ -56,7 +56,7 @@ import java.util.*
 fun SettingsScreen(
     viewModel: FinanceViewModel,
     onNavigateToProfile: () -> Unit,
-    onNavigateToAuth: () -> Unit = {},
+    onNavigateToAuth: () -> Unit, onNavigateToOthers: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val categories by viewModel.allCategories.collectAsState()
@@ -93,9 +93,6 @@ fun SettingsScreen(
     val incomeCategories = remember(categories) { categories.filter { it.type == "INCOME" } }
     val expenseCategories = remember(categories) { categories.filter { it.type == "EXPENSE" } }
     
-    val isPinEnabled by viewModel.isPinEnabled.collectAsState()
-    var showPinDialog by remember { mutableStateOf(false) }
-    var pinDialogMode by remember { mutableStateOf("SET") }
 
     val isUserSignedIn by viewModel.isUserSignedInFlow.collectAsState()
     val currentUserName = viewModel.currentUserName
@@ -103,100 +100,15 @@ fun SettingsScreen(
 
 
 
-    if (showPinDialog) {
-        var pinInput by remember { mutableStateOf("") }
-        var errorMessage by remember { mutableStateOf("") }
-        
-        AlertDialog(
-            onDismissRequest = { showPinDialog = false },
-            title = { Text(if (pinDialogMode == "SET") "Set PIN" else "Verify PIN to Disable") },
-            text = {
-                Column {
-                    Text(if (pinDialogMode == "SET") "Enter a 4-digit PIN." else "Enter your 4-digit PIN to disable lock.")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = pinInput,
-                        onValueChange = { if (it.length <= 4) pinInput = it },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        isError = errorMessage.isNotEmpty(),
-                        supportingText = if (errorMessage.isNotEmpty()) { { Text(errorMessage) } } else null
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (pinInput.length == 4) {
-                            if (pinDialogMode == "SET") {
-                                viewModel.setPin(pinInput)
-                                showPinDialog = false
-                            } else {
-                                if (viewModel.disablePin(pinInput)) {
-                                    showPinDialog = false
-                                } else {
-                                    errorMessage = "Incorrect PIN."
-                                }
-                            }
-                        } else {
-                            errorMessage = "PIN must be 4 digits."
-                        }
-                    }
-                ) {
-                    Text("Confirm")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPinDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+
+
+    
 
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showVaultDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     val themes = listOf("Mint Fresh", "Midnight Dark", "Ocean Blue", "Sunset Warm", "Lavender Calm", "Rose Soft")
-    var showCurrencyDialog by remember { mutableStateOf(false) }
 
-    if (showCurrencyDialog) {
-        val currencyOptions = listOf("BDT (৳)" to "৳", "USD ($)" to "$", "EUR (€)" to "€")
-        val currentSymbol by viewModel.currencySymbol.collectAsState()
-        
-        AlertDialog(
-            onDismissRequest = { showCurrencyDialog = false },
-            title = { Text("Change Your Currency") },
-            text = {
-                Column {
-                    currencyOptions.forEach { (label, symbol) ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.setCurrencySymbol(symbol)
-                                    showCurrencyDialog = false
-                                }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = symbol == currentSymbol,
-                                onClick = {
-                                    viewModel.setCurrencySymbol(symbol)
-                                    showCurrencyDialog = false
-                                }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(label)
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showCurrencyDialog = false }) { Text("Cancel") } }
-        )
-    }
 
     if (showCategoryDialog) {
         Dialog(onDismissRequest = { showCategoryDialog = false }) {
@@ -383,98 +295,6 @@ fun SettingsScreen(
             }
         }
         
-        // Settings rows
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = if (isDarkTheme) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
-        ) {
-            Column {
-                if (isUserSignedIn) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable { onNavigateToProfile() }.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        Text("👤 Account Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    }
-                } else {
-                    Button(
-                        onClick = { onNavigateToAuth() },
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
-                    ) {
-                        Text("🔐 Login / Signup (Sync to Cloud)")
-                    }
-                }
-                
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Enable PIN Lock", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Switch(
-                        checked = isPinEnabled,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                pinDialogMode = "SET"
-                                showPinDialog = true
-                            } else {
-                                pinDialogMode = "DISABLE"
-                                showPinDialog = true
-                            }
-                        }
-                    )
-                }
-                
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showCurrencyDialog = true }.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Change Your Currency", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-
-                HorizontalDivider()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showCategoryDialog = true }.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Manage Income & Expense Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-
-                HorizontalDivider()
-
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showVaultDialog = true }.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Manage Savings Vaults", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-                
-                HorizontalDivider()
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showThemeDialog = true }.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("App Theme", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(appTheme, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                }
-
-            }
-        }
-
         var dataManagementExpanded by remember { mutableStateOf(false) }
         var exportScopeDialog by remember { mutableStateOf<String?>(null) } // null, "YEARLY", "MONTHLY"
         val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -524,7 +344,7 @@ fun SettingsScreen(
             }
         }
 
-        var showNewYearDialog by remember { mutableStateOf(false) }
+var showNewYearDialog by remember { mutableStateOf(false) }
 
         if (showNewYearDialog) {
             AlertDialog(
@@ -583,6 +403,7 @@ fun SettingsScreen(
             )
         }
 
+        // Settings rows
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -590,6 +411,56 @@ fun SettingsScreen(
             border = if (isDarkTheme) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
         ) {
             Column {
+                if (isUserSignedIn) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onNavigateToProfile() }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        Text("👤 Account Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                } else {
+                    Button(
+                        onClick = { onNavigateToAuth() },
+                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    ) {
+                        Text("🔐 Login / Signup (Sync to Cloud)")
+                    }
+                }
+                
+                HorizontalDivider()
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { showCategoryDialog = true }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Manage Income & Expense Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { showVaultDialog = true }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Manage Savings Vaults", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+                
+                HorizontalDivider()
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { showThemeDialog = true }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("App Theme", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(appTheme, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                
+                HorizontalDivider()
+
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable { dataManagementExpanded = !dataManagementExpanded }.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -613,8 +484,20 @@ fun SettingsScreen(
                         }
                     }
                 }
+                
+                HorizontalDivider()
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { onNavigateToOthers() }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Others", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
+
+
         
         Spacer(modifier = Modifier.height(32.dp))
         
