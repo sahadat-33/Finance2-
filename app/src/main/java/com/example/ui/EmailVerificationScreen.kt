@@ -62,7 +62,8 @@ fun EmailVerificationScreen(viewModel: FinanceViewModel, navController: NavContr
                                     Toast.makeText(context, "Email is not verified yet. Please check your inbox.", Toast.LENGTH_SHORT).show()
                                 } else {
                                     if (!viewModel.isOnboardingComplete.value) {
-                                        navController.navigate("onboarding_balance") { popUpTo("verification") { inclusive = true } }
+                                        viewModel.completeOnboarding() // Skip onboarding step
+                                        navController.navigate("main") { popUpTo("verification") { inclusive = true } }
                                     } else {
                                         navController.navigate("main") { popUpTo("verification") { inclusive = true } }
                                     }

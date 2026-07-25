@@ -27,8 +27,29 @@ class FinanceRepository(private val context: Context) {
     private val isCloudSyncEnabled: Boolean
         get() = sharedPrefs.getBoolean("cloud_sync_enabled", true)
         
-    fun saveLastSyncTime() {
-        sharedPrefs.edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply()
+    suspend fun saveLastSyncTime(type: String = "Automatic") {
+        val count = dao.getAllTransactions().size + dao.getAllCategories().size + dao.getAllSavingsVaults().size
+        val size = count * 150
+        sharedPrefs.edit()
+            .putLong("last_sync_timestamp", System.currentTimeMillis())
+            .putInt("last_sync_count", count)
+            .putInt("last_sync_size", size)
+            .putString("last_sync_type", type)
+            .apply()
+    }
+
+    suspend fun triggerManualSync(): Boolean = withContext(Dispatchers.IO) {
+        if (!isCloudSyncEnabled) return@withContext false
+        try {
+            val success = cloudSyncManager.syncToCloud()
+            if (success) {
+                saveLastSyncTime("Manual")
+                return@withContext true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext false
     }
 
     private fun schedulePeriodicSync() {
@@ -36,7 +57,7 @@ class FinanceRepository(private val context: Context) {
         val constraints = androidx.work.Constraints.Builder()
             .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
             .build()
-        val syncRequest = androidx.work.PeriodicWorkRequestBuilder<SyncWorker>(12, java.util.concurrent.TimeUnit.HOURS)
+        val syncRequest = androidx.work.PeriodicWorkRequestBuilder<SyncWorker>(24, java.util.concurrent.TimeUnit.HOURS)
             .setConstraints(constraints)
             .build()
         androidx.work.WorkManager.getInstance(context).enqueueUniquePeriodicWork(
@@ -54,7 +75,7 @@ class FinanceRepository(private val context: Context) {
                 kotlinx.coroutines.withTimeout(5000L) {
                     val success = cloudSyncManager.syncToCloud()
                     if (success) {
-                        saveLastSyncTime()
+                        saveLastSyncTime("Automatic")
                     }
                 }
             } catch (e: Exception) {
@@ -93,7 +114,6 @@ class FinanceRepository(private val context: Context) {
         if (success) {
             val isClean = dao.getAllTransactions().isEmpty() && dao.getAllCategoriesFlow().first().isEmpty()
             if (isClean) {
-                initializeDatabaseIfEmpty()
                 triggerImmediateSync()
             }
         }
@@ -215,34 +235,7 @@ class FinanceRepository(private val context: Context) {
         return allVaults.firstOrNull()?.assetType
     }
 
-    suspend fun initializeDatabaseIfEmpty() {
-        val categories = dao.getAllCategoriesFlow().first()
-        if (categories.isEmpty()) {
-            // 1. Insert Minimalist Categories
-            val defaultCategories = listOf(
-                Category(name = "Others", type = "INCOME", isDefault = true), // Need "Others" for initial wallet balance
-                Category(name = "Salary", type = "INCOME", isDefault = true),
-                Category(name = "Savings", type = "INCOME", isDefault = true), // For withdrawal
-                
-                Category(name = "Home Rent", type = "EXPENSE", isDefault = true),
-                Category(name = "Food", type = "EXPENSE", isDefault = true),
-                Category(name = "Others", type = "EXPENSE", isDefault = true),
-                Category(name = "Savings", type = "EXPENSE", isDefault = true) // For contributions
-            )
-            for (category in defaultCategories) {
-                dao.insertCategory(category)
-            }
 
-            // 2. Insert Base Assets to the Vault
-            val defaultVault = listOf(
-                SavingsVault(assetType = "Insurance", amount = 1500.0),
-                SavingsVault(assetType = "Bank", amount = 8500.0)
-            )
-            for (vault in defaultVault) {
-                dao.insertSavingsVault(vault)
-            }
-        }
-    }
 
     private fun mayTime(baseCalendar: Calendar, day: Int): Long {
         val cal = baseCalendar.clone() as Calendar
@@ -254,7 +247,7 @@ class FinanceRepository(private val context: Context) {
         return@withContext authManager.reauthenticate(password)
     }
 
-    suspend fun updateEmail(newEmail: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun updateEmail(newEmail: String): String = withContext(Dispatchers.IO) {
         return@withContext authManager.updateEmail(newEmail)
     }
 

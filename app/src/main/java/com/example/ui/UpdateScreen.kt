@@ -3,7 +3,9 @@ package com.example.ui
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.os.Environment
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -16,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,7 +30,7 @@ import com.example.BuildConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UpdateScreen(onBack: () -> Unit) {
+fun UpdateScreen(onBack: () -> Unit, onNavigateToAbout: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
@@ -58,14 +62,41 @@ fun UpdateScreen(onBack: () -> Unit) {
         if (isChecking) return
         isChecking = true
         checkAttempted = true
+        
+        val sharedPrefs = context.getSharedPreferences("UpdateCache", Context.MODE_PRIVATE)
+        val lastCheckTime = sharedPrefs.getLong("last_check_time", 0L)
+        val lastCheckVersion = sharedPrefs.getString("last_check_version", null)
+        val lastCheckUrl = sharedPrefs.getString("last_check_url", null)
+        val currentTime = System.currentTimeMillis()
+        
+        // 1 hour cache = 3600000 ms
+        if (currentTime - lastCheckTime < 3600000L && lastCheckVersion != null) {
+            val currentVersion = BuildConfig.VERSION_NAME
+            val isNewer = isNewerVersion(currentVersion, lastCheckVersion)
+            if (isNewer) {
+                val cleanName = lastCheckVersion.ifEmpty { "new version" }
+                updateStatusMessage = "A new version ($cleanName) is available"
+                updateAvailable = true
+                downloadUrl = lastCheckUrl
+            } else {
+                updateStatusMessage = "This is the newest version."
+                updateAvailable = false
+                downloadUrl = null
+            }
+            isChecking = false
+            return
+        }
+
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val url = URL("https://api.github.com/repos/sahadat-33/Finance2-/releases/tags/Apk")
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                connection.setRequestProperty("User-Agent", "FinanceTracker-App")
                 
-                if (connection.responseCode == 200) {
+                val responseCode = connection.responseCode
+                if (responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
                     val jsonObject = JSONObject(response)
                     val releaseName = jsonObject.optString("name", "") // e.g., "v4.0.6"
@@ -78,6 +109,13 @@ fun UpdateScreen(onBack: () -> Unit) {
                     if (assets != null && assets.length() > 0) {
                         assetUrl = assets.getJSONObject(0).optString("browser_download_url")
                     }
+                    
+                    // Cache the successful result
+                    sharedPrefs.edit()
+                        .putLong("last_check_time", currentTime)
+                        .putString("last_check_version", releaseName)
+                        .putString("last_check_url", assetUrl)
+                        .apply()
 
                     withContext(Dispatchers.Main) {
                         if (isNewer) {
@@ -92,12 +130,19 @@ fun UpdateScreen(onBack: () -> Unit) {
                         }
                     }
                 } else {
+                    val errorResponse = try { connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch(e:Exception){""}
+                    Log.e("UpdateCheck", "HTTP Error $responseCode: $errorResponse")
                     withContext(Dispatchers.Main) {
-                        updateStatusMessage = "Couldn't check for updates. Please try again later."
+                        if (responseCode == 403 && errorResponse.contains("rate limit", ignoreCase = true)) {
+                            updateStatusMessage = "Too many checks — please try again in a bit."
+                        } else {
+                            updateStatusMessage = "Couldn't check for updates. Please try again later."
+                        }
                         updateAvailable = false
                     }
                 }
             } catch (e: Exception) {
+                Log.e("UpdateCheck", "Exception: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     updateStatusMessage = "Couldn't check for updates. Please try again later."
                     updateAvailable = false
@@ -132,23 +177,31 @@ fun UpdateScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Image(
+                painter = painterResource(id = R.drawable.icon_image_1780221523424),
+                contentDescription = "App Icon",
+                modifier = Modifier.size(64.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
             
             Text(
                 text = "Finance Tracker",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             
             Text(
                 text = "Version ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(56.dp))
             
             Row(
                 modifier = Modifier
@@ -212,31 +265,14 @@ fun UpdateScreen(onBack: () -> Unit) {
             
             Spacer(modifier = Modifier.weight(1f))
             
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Policies & Guidelines",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "|",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Credits",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+            Text(
+                text = "Credits",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { onNavigateToAbout() }.padding(8.dp)
+            )
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             
             Text(
                 text = "©2026 Finance-tracker",

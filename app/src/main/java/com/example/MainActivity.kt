@@ -40,6 +40,7 @@ import com.example.ui.DashboardScreen
 import com.example.ui.SettingsScreen
 import com.example.ui.OthersScreen
 import com.example.ui.UpdateScreen
+import com.example.ui.AboutScreen
 import com.example.ui.TimelineScreen
 import com.example.ui.theme.FinanceTrackerTheme
 import com.example.viewmodel.FinanceViewModel
@@ -96,7 +97,7 @@ class MainActivity : ComponentActivity() {
                 val startDest = remember(showAuthScreen, isUserSignedIn, isEmailVerified, isOnboardingComplete) {
                     if (showAuthScreen) "welcome_auth"
                     else if (isUserSignedIn && !isEmailVerified) "verification"
-                    else if (!isOnboardingComplete) "onboarding_balance"
+                    else if (!isOnboardingComplete) "main"
                     else "main"
                 }
 
@@ -116,14 +117,16 @@ class MainActivity : ComponentActivity() {
                                 if (!viewModel.isEmailVerifiedFlow.value) {
                                     rootNavController.navigate("verification") { popUpTo("welcome_auth") { inclusive = true } }
                                 } else if (!viewModel.isOnboardingComplete.value) {
-                                    rootNavController.navigate("onboarding_balance") { popUpTo("welcome_auth") { inclusive = true } }
+                                    viewModel.completeOnboarding() // Skip onboarding step
+                                    rootNavController.navigate("main") { popUpTo("welcome_auth") { inclusive = true } }
                                 } else {
                                     rootNavController.navigate("main") { popUpTo("welcome_auth") { inclusive = true } }
                                 }
                             },
                             onBypass = { 
                                 if (!viewModel.isOnboardingComplete.value) {
-                                    rootNavController.navigate("onboarding_balance") { popUpTo("welcome_auth") { inclusive = true } }
+                                    viewModel.completeOnboarding() // Skip onboarding step
+                                    rootNavController.navigate("main") { popUpTo("welcome_auth") { inclusive = true } }
                                 } else {
                                     rootNavController.navigate("main") { popUpTo("welcome_auth") { inclusive = true } }
                                 }
@@ -133,7 +136,8 @@ class MainActivity : ComponentActivity() {
                     composable("verification") {
                         com.example.ui.EmailVerificationScreen(viewModel = viewModel, navController = rootNavController)
                     }
-                    composable("onboarding_balance") {
+                    // composable("onboarding_balance") intentionally disabled
+                    /* composable("onboarding_balance") {
                         com.example.ui.OnboardingBalanceScreen(
                             viewModel = viewModel,
                             onComplete = { 
@@ -141,7 +145,7 @@ class MainActivity : ComponentActivity() {
                                 rootNavController.navigate("main") { popUpTo("onboarding_balance") { inclusive = true } }
                             }
                         )
-                    }
+                    } */
                     composable("main") {
                         Box(modifier = Modifier.fillMaxSize()) {
                             val navController = rememberNavController()
@@ -356,7 +360,10 @@ class MainActivity : ComponentActivity() {
                             OthersScreen(viewModel = viewModel, onBack = { navController.popBackStack() }, onNavigateToUpdate = { navController.navigate("update") })
                         }
                         composable("update") {
-                            UpdateScreen(onBack = { navController.popBackStack() })
+                            UpdateScreen(onBack = { navController.popBackStack() }, onNavigateToAbout = { navController.navigate("about") })
+                        }
+                        composable("about") {
+                            AboutScreen(onBack = { navController.popBackStack() })
                         }
                         composable("profile") {
                             AccountSettingsScreen(viewModel = viewModel, onBack = { navController.popBackStack() })

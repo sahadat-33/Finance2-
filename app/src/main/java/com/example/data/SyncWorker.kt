@@ -19,8 +19,15 @@ class SyncWorker(
             val success = cloudSyncManager.syncToCloud()
             
             if (success) {
+                val count = database.dao.getAllTransactions().size + database.dao.getAllCategories().size + database.dao.getAllSavingsVaults().size
+                val size = count * 150
                 applicationContext.getSharedPreferences("taka_tracker_prefs", Context.MODE_PRIVATE)
-                    .edit().putLong("last_sync_timestamp", System.currentTimeMillis()).apply()
+                    .edit()
+                    .putLong("last_sync_timestamp", System.currentTimeMillis())
+                    .putInt("last_sync_count", count)
+                    .putInt("last_sync_size", size)
+                    .putString("last_sync_type", "Automatic")
+                    .apply()
             }
             
             Result.success()

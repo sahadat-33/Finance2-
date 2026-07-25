@@ -107,7 +107,7 @@ fun SettingsScreen(
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showVaultDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
-    val themes = listOf("Mint Fresh", "Midnight Dark", "Ocean Blue", "Sunset Warm", "Lavender Calm", "Rose Soft")
+    val themes = listOf("Mint Fresh", "Ocean Blue", "Sunset Warm", "Lavender Calm", "Rose Soft")
 
 
     if (showCategoryDialog) {
@@ -210,8 +210,7 @@ fun SettingsScreen(
                                         modifier = Modifier.size(24.dp).clip(CircleShape).background(
                                             when (themeName) {
                                                 "Mint Fresh" -> Color(0xFF30BA8C)
-                                                "Midnight Dark" -> Color(0xFF191C1B)
-                                                "Ocean Blue" -> Color(0xFF2196F3)
+                                                                                                "Ocean Blue" -> Color(0xFF2196F3)
                                                 "Sunset Warm" -> Color(0xFFFF9800)
                                                 "Lavender Calm" -> Color(0xFF9C27B0)
                                                 "Rose Soft" -> Color(0xFFE91E63)

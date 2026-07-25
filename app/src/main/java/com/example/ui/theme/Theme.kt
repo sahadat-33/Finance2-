@@ -212,16 +212,15 @@ val RoseDark = darkColorScheme(
 @Composable
 fun FinanceTrackerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    themeName: String = "Mint Fresh",
+    themeName: String = "Ocean Blue",
     content: @Composable () -> Unit
 ) {
     val colorScheme = when (themeName) {
-        "Midnight Dark" -> MidnightDarkScheme
-        "Ocean Blue" -> if (darkTheme) BlueDark else BlueLight
+                "Ocean Blue" -> if (darkTheme) BlueDark else BlueLight
         "Sunset Warm" -> if (darkTheme) WarmDark else WarmLight
         "Lavender Calm" -> if (darkTheme) LavenderDark else LavenderLight
         "Rose Soft" -> if (darkTheme) RoseDark else RoseLight
-        else -> if (darkTheme) MintDark else MintLight // Default to Mint Fresh
+        else -> if (darkTheme) BlueDark else BlueLight
     }
 
     MaterialTheme(

@@ -8,6 +8,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,13 +44,28 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val lastSyncTime by viewModel.lastSyncTimestamp.collectAsState()
+    val lastSyncCount by viewModel.lastSyncCount.collectAsState()
+    val lastSyncSize by viewModel.lastSyncSize.collectAsState()
+    val lastSyncType by viewModel.lastSyncType.collectAsState()
     
+    var isManualSyncing by remember { mutableStateOf(false) }
+
     val syncTimeString = remember(lastSyncTime) {
         if (lastSyncTime == 0L) {
             "Not synced yet"
         } else {
             val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
             "Last synced to database: ${sdf.format(Date(lastSyncTime))}"
+        }
+    }
+    
+    val fullSyncString = remember(lastSyncTime, lastSyncCount, lastSyncSize, lastSyncType) {
+        if (lastSyncTime == 0L) {
+            "Not synced yet"
+        } else {
+            val sdf = SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault())
+            val sizeKb = String.format("%.1f", lastSyncSize / 1024.0)
+            "${sdf.format(Date(lastSyncTime))}, $lastSyncCount records, ${sizeKb}kB, Finance Tracker v${com.example.BuildConfig.VERSION_NAME}, $lastSyncType"
         }
     }
 
@@ -91,15 +112,21 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
                         scope.launch {
                             val reauthSuccess = viewModel.reauthenticate(currentPassword)
                             if (reauthSuccess) {
-                                val updateSuccess = viewModel.updateEmail(newEmail)
-                                if (updateSuccess) {
-                                    email = newEmail
-                                    showChangeEmailDialog = false
+                                val result = viewModel.updateEmail(newEmail)
+                                if (result == "SUCCESS") {
+                                    emailError = "A verification link has been sent to $newEmail. Please check your inbox, click the verification link, then sign out and sign back in using your new email and your current password."
+                                    // Optionally we could close the dialog after some delay, but user needs to read this.
+                                    // Let's just leave it open with the message, or change state.
+                                    // The instruction says: "Show the user a clear message..."
+                                } else if (result == "EMAIL_IN_USE") {
+                                    emailError = "This email is already in use by another account."
+                                } else if (result == "INVALID_EMAIL") {
+                                    emailError = "Invalid email format."
                                 } else {
-                                    emailError = "Failed to update email. Make sure it is valid and not already in use."
+                                    emailError = "Failed: $result"
                                 }
                             } else {
-                                emailError = "Incorrect password."
+                                emailError = "Incorrect password (re-auth failure)."
                             }
                             isReauthLoading = false
                         }
@@ -240,32 +267,6 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = lightMintBackground)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudSync, 
-                        contentDescription = "Sync Status",
-                        tint = brandMint
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = syncTimeString,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.DarkGray,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -277,19 +278,19 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = {},
-                    label = { Text("Email Address") },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon", tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                    readOnly = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = brandMint,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                Column {
+                    Text(
+                        text = "Account",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = email,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
 
                 OutlinedTextField(
                     value = username,
@@ -324,6 +325,49 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
                 }
             }
 
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Online Backup",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = fullSyncString,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f).padding(end = 16.dp)
+                    )
+                    
+                    IconButton(
+                        onClick = { 
+                            isManualSyncing = true
+                            viewModel.triggerManualSync { 
+                                isManualSyncing = false
+                            }
+                        },
+                        modifier = Modifier
+                            .background(brandMint.copy(alpha = 0.1f), androidx.compose.foundation.shape.CircleShape)
+                            .size(36.dp)
+                    ) {
+                        if (isManualSyncing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = brandMint, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = "Sync Now", tint = brandMint, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.weight(1f))
 
             Column(
@@ -331,29 +375,19 @@ fun AccountSettingsScreen(viewModel: FinanceViewModel, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Button(
-                    onClick = {
-                        viewModel.signOut()
-                        onBack()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Sign Out", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onError)
-                }
-                
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(
-                    text = "Version ${com.example.BuildConfig.VERSION_NAME}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                    text = "Sign Out",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .clickable {
+                            viewModel.signOut()
+                            onBack()
+                        }
+                        .padding(vertical = 8.dp)
                 )
             }
         }

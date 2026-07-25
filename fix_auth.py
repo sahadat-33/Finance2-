@@ -1,4 +1,13 @@
-package com.example.data
+import re
+
+with open('app/src/main/java/com/example/data/FirebaseAuthManager.kt', 'r') as f:
+    content = f.read()
+
+# Fix nested duplicate functions inside init { try {} catch {} }
+# Wait, let's just rewrite the whole file cleanly.
+
+with open('app/src/main/java/com/example/data/FirebaseAuthManager.kt', 'w') as f:
+    f.write("""package com.example.data
 
 import android.content.Context
 import android.util.Log
@@ -142,3 +151,4 @@ class FirebaseAuthManager(context: Context) {
         }
     }
 }
+""")
