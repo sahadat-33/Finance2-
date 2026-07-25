@@ -29,9 +29,9 @@ class GoogleAuthManager(private val context: Context) {
         } catch (e: Throwable) {
             // Init manually using mock strings to prevent crash, user MUST provide real google-services.json
             try {
-                val apiKey = "AIzaSyA8JKuCTMzEQQ62-_8EB-EPmbRQjFJdYxU"
-                val appId = "1:257098997013:android:d3dd4ca3987786b4dadd1c"
-                val projectId = "finance-tracker-779de"
+                val apiKey = "AIzaSyBVyj96qOqksLbhnHSPlaKPBrVl_CQPsmI"
+                val appId = "1:718968925883:android:d044b6c1866082e7c9439e"
+                val projectId = "finance-tracker-a2c38"
                 
                 if (apiKey.isNotBlank() && apiKey != "PLACEHOLDER") {
                     val options = FirebaseOptions.Builder()
@@ -61,7 +61,7 @@ class GoogleAuthManager(private val context: Context) {
         
         try {
             // Need a valid Web Client ID string
-            val webClientId = "257098997013-d8g5pjjihn3kvj2vbheqgou8vfcadh4e.apps.googleusercontent.com"
+            val webClientId = "718968925883-faikofsqeabuj45kg4j8hj9rdr329po0.apps.googleusercontent.com"
             if (webClientId.isEmpty() || webClientId == "PLACEHOLDER") {
                 Log.e("Auth", "Missing Web Client ID for Google Sign-In.")
                 return false
