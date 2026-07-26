@@ -17,6 +17,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +56,16 @@ fun DashboardScreen(
     val monthNameFormatter = remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()) }
     val formattedMonth = monthNameFormatter.format(selectedCalendar.time)
 
+    var skeletonVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(stats.transactions) {
+        if (stats.transactions.isNotEmpty()) {
+            skeletonVisible = false
+        } else {
+            kotlinx.coroutines.delay(500)
+            skeletonVisible = false
+        }
+    }
+
     // Format utility for amounts
     fun formatTaka(amount: Double): String {
         val formatter = NumberFormat.getNumberInstance(Locale.US)
@@ -61,6 +74,9 @@ fun DashboardScreen(
 
     var isVaultExpanded by remember { mutableStateOf(false) }
 
+    if (skeletonVisible) {
+        DashboardSkeleton()
+    } else {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -109,6 +125,12 @@ fun DashboardScreen(
                             .size(100.dp)
                             .padding(4.dp)
                     ) {
+                    val rawSweep = (percentSpentVal * 360f).toFloat().coerceIn(0f, 360f)
+                    val animatedSweep by animateFloatAsState(
+                        targetValue = rawSweep,
+                        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                        label = "donut_sweep"
+                    )
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val stroke = 12.dp.toPx()
                             // Leftover / Remaining backing circle (Lite Green)
@@ -116,12 +138,11 @@ fun DashboardScreen(
                                 color = Color(0xFFBBECC4),
                                 style = Stroke(stroke)
                             )
-                            val sweepAngle = (percentSpentVal * 360f).toFloat().coerceIn(0f, 360f)
                             // Spent foreground arc (Lite Blue)
                             drawArc(
                                 color = Color(0xFFA2C2FC),
                                 startAngle = -90f,
-                                sweepAngle = sweepAngle,
+                                sweepAngle = animatedSweep,
                                 useCenter = false,
                                 style = Stroke(stroke, cap = StrokeCap.Round)
                             )
@@ -153,7 +174,7 @@ fun DashboardScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFBBECC4)))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Leftover: ${formatTaka((stats.totalEarnings - stats.totalExpenses).coerceAtLeast(0.0))}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Leftover: ${formatTaka((stats.totalEarnings - stats.totalExpenses - stats.totalSavingsContributed).coerceAtLeast(0.0))}", style = MaterialTheme.typography.bodyMedium)
                         }
                         Text(
                             text = "Monthly Savings: ${formatTaka(stats.totalSavingsContributed)}",
@@ -208,20 +229,17 @@ fun DashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(getCategoryColor(index).copy(alpha = 0.13f))
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .clip(CircleShape)
-                                            .background(getCategoryColor(index))
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = exp.categoryName,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = getCategoryColor(index),
+                                        fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -235,11 +253,11 @@ fun DashboardScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "${percent.toInt()}%",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                                     )
                                 }
                             }
@@ -553,6 +571,7 @@ fun DashboardScreen(
         // Space at the bottom for safety
         Spacer(modifier = Modifier.height(24.dp))
     }
+    }
 }
 
 @Composable
@@ -698,3 +717,4 @@ fun getVaultColor(index: Int): Color {
 @Composable
 fun CardStroke(width: androidx.compose.ui.unit.Dp, color: Color) = 
     androidx.compose.foundation.BorderStroke(width, color)
+

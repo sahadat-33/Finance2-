@@ -25,6 +25,11 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -59,7 +64,7 @@ import com.example.ui.PinScreen
 import com.google.firebase.FirebaseApp
 
 @OptIn(ExperimentalMaterial3Api::class)
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FirebaseApp.initializeApp(this)
@@ -156,6 +161,14 @@ class MainActivity : ComponentActivity() {
                 // Retrieve active navigation route
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route ?: "dashboard"
+                
+                val timelineScrollState = rememberLazyListState()
+                val isFabVisible by remember {
+                    derivedStateOf {
+                        !timelineScrollState.isScrollInProgress ||
+                        timelineScrollState.firstVisibleItemScrollOffset == 0
+                    }
+                }
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize().testTag("app_scaffold"),
@@ -301,14 +314,20 @@ class MainActivity : ComponentActivity() {
                     floatingActionButton = {
                         // Present FAB only on Home Dashboard and Timeline Daily Log (Screen 1 & 2 as requested)
                         if (currentRoute == "dashboard" || currentRoute == "timeline") {
-                            FloatingActionButton(
-                                onClick = { showAddDialog = true },
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.testTag("quick_add_fab")
+                            AnimatedVisibility(
+                                visible = isFabVisible,
+                                enter = scaleIn(tween(180)) + fadeIn(tween(180)),
+                                exit = scaleOut(tween(150)) + fadeOut(tween(150))
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = "Quick add transaction FAB")
+                                FloatingActionButton(
+                                    onClick = { showAddDialog = true },
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.testTag("quick_add_fab")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Quick add transaction FAB")
+                                }
                             }
                         }
                     }
@@ -343,7 +362,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("timeline") {
-                            TimelineScreen(viewModel = viewModel)
+                            TimelineScreen(viewModel = viewModel, lazyListState = timelineScrollState)
                         }
                         composable("yearly") {
                             com.example.ui.YearlySummaryScreen(viewModel = viewModel)
@@ -379,7 +398,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                         if (isAppLocked) {
-                            PinScreen(onVerify = { pin -> viewModel.verifyPin(pin) })
+                            PinScreen(onVerify = { pin -> viewModel.verifyPin(pin) }, onUnlocked = { viewModel.unlockApp() })
                         }
                     } // End of Box block
                     } // End of main composable block

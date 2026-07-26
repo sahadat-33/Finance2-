@@ -151,6 +151,14 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
+    private val _isBiometricEnabled = MutableStateFlow(sharedPrefs.getBoolean("biometric_enabled", false))
+    val isBiometricEnabled: StateFlow<Boolean> = _isBiometricEnabled.asStateFlow()
+    
+    fun setBiometricEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("biometric_enabled", enabled).apply()
+        _isBiometricEnabled.value = enabled
+    }
+
     private val _isPinEnabled = MutableStateFlow(sharedPrefs.getBoolean("pin_enabled", false))
     val isPinEnabled: StateFlow<Boolean> = _isPinEnabled.asStateFlow()
 
@@ -177,7 +185,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         if (savedPin == pin) {
             cryptoPrefs.edit().remove("app_pin").apply()
             sharedPrefs.edit().putBoolean("pin_enabled", false).apply()
+            sharedPrefs.edit().putBoolean("biometric_enabled", false).apply()
             _isPinEnabled.value = false
+            _isBiometricEnabled.value = false
             _isAppLocked.value = false
             return true
         }
@@ -188,6 +198,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         if (_isPinEnabled.value) {
             _isAppLocked.value = true
         }
+    }
+    
+    fun unlockApp() {
+        _isAppLocked.value = false
     }
 
     // Current selected month & year (defaulting to current date runtime, e.g. May 2026)
@@ -311,7 +325,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
         val cashBalance = totalEarnings - totalExpenses - totalSavingsContributed
 
-        val expenseTransactions = monthlyTransactions.filter { it.type == "EXPENSE" }
+        val expenseTransactions = monthlyTransactions.filter { it.type == "EXPENSE" && it.categoryName != "Savings" }
         val categoryExpenseMap = expenseTransactions.groupBy { it.categoryName }
             .mapValues { entry -> entry.value.sumOf { it.amount } }
         val sortedCategoryExpenses = categoryExpenseMap.entries
@@ -418,6 +432,12 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun editTransaction(updated: Transaction) {
+        viewModelScope.launch {
+            repository.updateTransaction(updated)
+        }
+    }
+
     fun addCategory(name: String, type: String) {
         viewModelScope.launch {
             repository.insertCategory(
@@ -444,8 +464,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun getYearlySummary(year: Int): YearlySummary {
-        val allTx = allTransactions.value
+    fun getYearlySummary(year: Int, transactions: List<Transaction> = allTransactions.value): YearlySummary {
+        val allTx = transactions
         val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
         val monthlyData = mutableListOf<YearlySummaryRow>()
         
@@ -542,26 +562,28 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
         
         viewModelScope.launch {
-            for (tx in allTransactions.value) {
-                repository.deleteTransaction(tx)
-            }
-            
-            val nextYearCal = Calendar.getInstance().apply {
-                set(Calendar.YEAR, year + 1)
-                set(Calendar.MONTH, Calendar.JANUARY)
-                set(Calendar.DAY_OF_MONTH, 1)
-            }
-            repository.insertTransaction(
-                Transaction(
-                    type = "INCOME",
-                    categoryName = "Last Month Carryover",
-                    amount = carryoverCash,
-                    date = nextYearCal.timeInMillis,
-                    note = "New year starting balance"
-                )
-            )
-            _selectedCalendar.value = nextYearCal
-        }
+    // Batch-delete directly through DAO to avoid triggering one sync per transaction.
+    // Categories and savings vaults are left completely untouched.
+    repository.dao.deleteAllTransactions()
+    val nextYearCal = Calendar.getInstance().apply {
+        set(Calendar.YEAR, year + 1)
+        set(Calendar.MONTH, Calendar.JANUARY)
+        set(Calendar.DAY_OF_MONTH, 1)
+    }
+    // Insert the single carryover entry directly via DAO (no sync trigger)
+    repository.dao.insertTransaction(
+        Transaction(
+            type = "INCOME",
+            categoryName = "Last Month Carryover",
+            amount = carryoverCash,
+            date = nextYearCal.timeInMillis,
+            note = "New year starting balance"
+        )
+    )
+    // One single sync for the entire operation
+    repository.triggerManualSync()
+    _selectedCalendar.value = nextYearCal
+}
     }
 }
 

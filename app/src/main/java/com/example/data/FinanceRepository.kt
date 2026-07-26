@@ -166,6 +166,11 @@ class FinanceRepository(private val context: Context) {
         triggerImmediateSync()
     }
 
+    suspend fun updateTransaction(transaction: Transaction) = withContext(Dispatchers.IO) {
+        dao.updateTransaction(transaction)
+        triggerImmediateSync()
+    }
+
     suspend fun deleteTransaction(transaction: Transaction) = withContext(Dispatchers.IO) {
         dao.deleteTransaction(transaction)
         

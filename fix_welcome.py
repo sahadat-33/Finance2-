@@ -1,4 +1,9 @@
-package com.example.ui
+import re
+
+with open('app/src/main/java/com/example/ui/WelcomeAuthScreen.kt', 'r') as f:
+    content = f.read()
+
+new_content = """package com.example.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -184,7 +189,7 @@ fun WelcomeAuthScreen(
                                             errorMessage = "Username, Email, and Password are required."
                                             return@Button
                                         }
-                                        if (!email.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[a-z]+\$".toRegex())) {
+                                        if (!email.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\\\.[a-z]+\$".toRegex())) {
                                             errorMessage = "Please enter a valid email address."
                                             return@Button
                                         }
@@ -209,7 +214,7 @@ fun WelcomeAuthScreen(
                                             errorMessage = "Email and Password are required."
                                             return@Button
                                         }
-                                        if (!email.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[a-z]+\$".toRegex())) {
+                                        if (!email.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\\\.[a-z]+\$".toRegex())) {
                                             errorMessage = "Please enter a valid email address."
                                             return@Button
                                         }
@@ -316,3 +321,6 @@ fun WelcomeAuthScreen(
         }
     }
 }
+"""
+with open('app/src/main/java/com/example/ui/WelcomeAuthScreen.kt', 'w') as f:
+    f.write(new_content)

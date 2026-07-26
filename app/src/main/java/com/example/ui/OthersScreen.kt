@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.biometric.BiometricManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +31,10 @@ fun OthersScreen(viewModel: FinanceViewModel, onBack: () -> Unit, onNavigateToUp
     val coroutineScope = rememberCoroutineScope()
     
     val isPinEnabled by viewModel.isPinEnabled.collectAsState(initial = false)
+    val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState(initial = false)
+    val canAuthenticateBiometric = remember {
+        BiometricManager.from(context).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
+    }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinDialogMode by remember { mutableStateOf("SET") }
     
@@ -179,6 +184,25 @@ fun OthersScreen(viewModel: FinanceViewModel, onBack: () -> Unit, onNavigateToUp
                                 }
                             }
                         )
+                    }
+
+                    if (isPinEnabled && canAuthenticateBiometric) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Also unlock with fingerprint / face", style = MaterialTheme.typography.bodyLarge)
+                            Switch(
+                                checked = isBiometricEnabled,
+                                onCheckedChange = { checked ->
+                                    viewModel.setBiometricEnabled(checked)
+                                }
+                            )
+                        }
                     }
                     
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

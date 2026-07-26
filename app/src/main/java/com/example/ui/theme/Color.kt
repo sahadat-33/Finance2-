@@ -45,3 +45,9 @@ val EarningGreen = Color(0xFF4DA658)        // Desaturated, friendly semantic gr
 val ExpenseRed = Color(0xFFE57373)          // Friendly desaturated semantic red
 val SavingsBlue = Color(0xFF64B5F6)         // Soft pastel blue
 val SavingsWithdrawalPink = Color(0xFFF06292) // Soft pastel pink
+
+val DarkBackground     = Color(0xFF111620)
+val DarkSurface        = Color(0xFF1A2130)
+val DarkSurfaceVariant = Color(0xFF232D3E)
+val DarkOnSurface      = Color(0xFFE6ECF5)
+val DarkOnSurfaceVariant = Color(0xFFADB8CC)

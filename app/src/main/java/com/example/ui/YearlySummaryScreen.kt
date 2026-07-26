@@ -47,7 +47,7 @@ fun YearlySummaryScreen(viewModel: FinanceViewModel) {
     
     // Compute yearly stats for selected year
     val summaryRows = remember(selectedYear, allTransactions) {
-        viewModel.getYearlySummary(selectedYear)
+        viewModel.getYearlySummary(selectedYear, allTransactions)
     }
     
     val monthlyTransactions = remember(selectedYear, allTransactions) {

@@ -7,6 +7,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -43,7 +45,8 @@ import java.util.*
 @Composable
 fun TimelineScreen(
     viewModel: FinanceViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lazyListState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 ) {
     androidx.compose.runtime.LaunchedEffect(Unit) {
         viewModel.triggerFetchFromCloud()
@@ -237,6 +240,7 @@ fun TimelineScreen(
             }
         } else {
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -296,7 +300,8 @@ fun TimelineScreen(
                         TimelineRowItem(
                             transaction = tx,
                             formatTaka = ::formatTaka,
-                            onDelete = { viewModel.deleteTransaction(tx) }
+                            onDelete = { viewModel.deleteTransaction(tx) },
+                            viewModel = viewModel
                         )
                     }
                 }
@@ -306,11 +311,15 @@ fun TimelineScreen(
 }
 
 @Composable
+@kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun TimelineRowItem(
     transaction: Transaction,
     formatTaka: (Double) -> String,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    viewModel: FinanceViewModel
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
     // Determine Savings Withdrawal (Income categorization of Savings)
     val isSavingsWithdrawal = transaction.type == "INCOME" && transaction.categoryName == "Savings"
     val isDark = MaterialTheme.colorScheme.background.red < 0.5f
@@ -328,135 +337,106 @@ fun TimelineRowItem(
         else -> MaterialTheme.colorScheme.primary
     }
 
+
+    if (showEditDialog) {
+        EditTransactionDialog(
+            transaction = transaction,
+            viewModel = viewModel,
+            onDismiss = { showEditDialog = false }
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete this entry?") },
+            text = {
+                val label = when {
+                    isSavingsWithdrawal -> "savings withdrawal"
+                    transaction.type == "INCOME" -> "income entry"
+                    else -> "expense"
+                }
+                Text("Remove ${formatTaka(transaction.amount)} $label (${transaction.categoryName})? This cannot be undone.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onDelete(); showDeleteConfirm = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { showEditDialog = true }
+            )
             .testTag("timeline_row_${transaction.id}"),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = rowBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = if (isDark) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Type & Category
-            Row(
-                modifier = Modifier.weight(1.2f),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(chipColor.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = when {
-                            isSavingsWithdrawal -> Icons.Default.RemoveCircleOutline
-                            transaction.type == "INCOME" -> Icons.Default.ArrowUpward
-                            else -> Icons.Default.ArrowDownward
-                        },
-                        contentDescription = transaction.type,
-                        tint = chipColor,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Column {
-                    val displayType = when {
-                        isSavingsWithdrawal -> "Withdrawal"
-                        transaction.type == "INCOME" -> "Income"
-                        else -> "Expense"
-                    }
-                    Text(
-                        text = displayType,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = chipColor,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = transaction.categoryName,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // Note/Source and Receipt
-            Row(modifier = Modifier.weight(1.5f), verticalAlignment = Alignment.CenterVertically) {
-                var previewReceipt by remember { mutableStateOf<String?>(null) }
-
-                if (transaction.receiptImageUri != null) {
-                    AsyncImage(
-                        model = transaction.receiptImageUri,
-                        contentDescription = "Receipt Thumbnail",
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { previewReceipt = transaction.receiptImageUri },
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                }
-                
-                if (previewReceipt != null) {
-                    Dialog(onDismissRequest = { previewReceipt = null }) {
-                        Box(modifier = Modifier.fillMaxWidth().height(500.dp).background(Color.Black).clickable { previewReceipt = null }, contentAlignment = Alignment.Center) {
-                            AsyncImage(
-                                model = previewReceipt,
-                                contentDescription = "Receipt Image",
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                contentScale = ContentScale.Fit
-                            )
-                            IconButton(
-                                onClick = { previewReceipt = null },
-                                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                            }
-                        }
-                    }
-                }
-
+            Column(modifier = Modifier.weight(1.2f)) {
                 Text(
-                    text = transaction.note.ifEmpty { "-" },
+                    text = if (isSavingsWithdrawal) "Savings W/D" else if (transaction.type == "INCOME") "Income" else "Expense",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = chipColor
+                )
+                Text(
+                    text = transaction.categoryName,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    fontStyle = if (transaction.note.isEmpty()) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-
-            // Amount
             Text(
-                text = formatTaka(transaction.amount),
-                modifier = Modifier.weight(1.1f),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (isSavingsWithdrawal) SavingsWithdrawalPink else if (transaction.type == "INCOME") EarningGreen else MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.End
+                text = transaction.note,
+                modifier = Modifier.weight(1.5f).padding(end = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            // Quick Delete icon
+            Column(
+                modifier = Modifier.weight(1.1f),
+                horizontalAlignment = Alignment.End
+            ) {
+                Text(
+                    text = formatTaka(transaction.amount),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = chipColor
+                )
+                Text(
+                    text = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                        .format(java.util.Date(transaction.date)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                )
+            }
             IconButton(
-                onClick = onDelete,
-                modifier = Modifier
-                    .size(36.dp)
-                    .padding(start = 8.dp)
-                    .testTag("delete_tx_btn_${transaction.id}")
+                onClick = { showDeleteConfirm = true },
+                modifier = Modifier.size(36.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = "Delete transaction records",
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                    modifier = Modifier.size(20.dp)
+                    Icons.Default.DeleteOutline,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
