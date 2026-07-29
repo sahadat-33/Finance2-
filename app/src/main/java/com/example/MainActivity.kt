@@ -365,14 +365,28 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             TimelineScreen(viewModel = viewModel, lazyListState = timelineScrollState)
                         }
                         composable("yearly") {
-                            com.example.ui.YearlySummaryScreen(viewModel = viewModel)
+                            com.example.ui.AnalyticsScreen(viewModel = viewModel)
                         }
                         composable("settings") {
                             SettingsScreen(
                                 viewModel = viewModel,
                                 onNavigateToProfile = { navController.navigate("profile") },
                                 onNavigateToAuth = { rootNavController.navigate("welcome_auth") },
-                                onNavigateToOthers = { navController.navigate("others") }
+                                onNavigateToOthers = { navController.navigate("others") },
+                                onNavigateToDataManagement = { navController.navigate("data_management") }
+                            )
+                        }
+                        composable("data_management") {
+                            com.example.ui.DataManagementScreen(
+                                viewModel = viewModel, 
+                                onBack = { navController.popBackStack() },
+                                onNavigateToSummary = { navController.navigate("summary") }
+                            )
+                        }
+                        composable("summary") {
+                            com.example.ui.YearlySummaryScreen(
+                                viewModel = viewModel,
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable("others") {

@@ -88,68 +88,108 @@ fun UpdateScreen(onBack: () -> Unit, onNavigateToAbout: () -> Unit) {
         }
 
         coroutineScope.launch(Dispatchers.IO) {
-            try {
-                val url = URL("https://api.github.com/repos/sahadat-33/Finance2-/releases/tags/Apk")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                connection.setRequestProperty("User-Agent", "FinanceTracker-App")
-                
-                val responseCode = connection.responseCode
-                if (responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val jsonObject = JSONObject(response)
-                    val releaseName = jsonObject.optString("name", "") // e.g., "v4.0.6"
-                    
-                    val currentVersion = BuildConfig.VERSION_NAME
-                    val isNewer = isNewerVersion(currentVersion, releaseName)
-                    
-                    val assets = jsonObject.optJSONArray("assets")
-                    var assetUrl: String? = null
-                    if (assets != null && assets.length() > 0) {
-                        assetUrl = assets.getJSONObject(0).optString("browser_download_url")
-                    }
-                    
-                    // Cache the successful result
+            val currentVersion = BuildConfig.VERSION_NAME
+            val primaryResult = runCatching {
+                kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                    com.example.data.UpdateChecker.checkForUpdate(currentVersion)
+                }
+            }
+            
+            when {
+                primaryResult.isSuccess && primaryResult.getOrNull() != null -> {
+                    val info = primaryResult.getOrNull()!!
+                    val releaseName = info.version
+                    val assetUrl = info.downloadUrl
                     sharedPrefs.edit()
                         .putLong("last_check_time", currentTime)
                         .putString("last_check_version", releaseName)
                         .putString("last_check_url", assetUrl)
                         .apply()
-
                     withContext(Dispatchers.Main) {
-                        if (isNewer) {
-                            val cleanName = releaseName.ifEmpty { "new version" }
-                            updateStatusMessage = "A new version ($cleanName) is available"
-                            updateAvailable = true
-                            downloadUrl = assetUrl
-                        } else {
-                            updateStatusMessage = "This is the newest version."
-                            updateAvailable = false
-                            downloadUrl = null
-                        }
+                        val cleanName = releaseName.ifEmpty { "new version" }
+                        updateStatusMessage = "A new version ($cleanName) is available"
+                        updateAvailable = true
+                        downloadUrl = assetUrl
+                        isChecking = false
                     }
-                } else {
-                    val errorResponse = try { connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch(e:Exception){""}
-                    Log.e("UpdateCheck", "HTTP Error $responseCode: $errorResponse")
+                }
+                primaryResult.isSuccess -> {
+                    sharedPrefs.edit()
+                        .putLong("last_check_time", currentTime)
+                        .putString("last_check_version", currentVersion)
+                        .putString("last_check_url", null)
+                        .apply()
                     withContext(Dispatchers.Main) {
-                        if (responseCode == 403 && errorResponse.contains("rate limit", ignoreCase = true)) {
-                            updateStatusMessage = "Too many checks — please try again in a bit."
-                        } else {
-                            updateStatusMessage = "Couldn't check for updates. Please try again later."
-                        }
+                        updateStatusMessage = "This is the newest version."
                         updateAvailable = false
+                        downloadUrl = null
+                        isChecking = false
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("UpdateCheck", "Exception: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    updateStatusMessage = "Couldn't check for updates. Please try again later."
-                    updateAvailable = false
-                }
-            } finally {
-                withContext(Dispatchers.Main) {
-                    isChecking = false
+                else -> {
+                    try {
+                        val url = URL("https://api.github.com/repos/sahadat-33/Finance2-/releases/tags/Apk")
+                        val connection = url.openConnection() as HttpURLConnection
+                        connection.requestMethod = "GET"
+                        connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                        connection.setRequestProperty("User-Agent", "FinanceTracker-App")
+                        
+                        val responseCode = connection.responseCode
+                        if (responseCode == 200) {
+                            val response = connection.inputStream.bufferedReader().use { it.readText() }
+                            val jsonObject = JSONObject(response)
+                            val releaseName = jsonObject.optString("name", "") // e.g., "v4.0.6"
+                            
+                            val isNewer = isNewerVersion(currentVersion, releaseName)
+                            
+                            val assets = jsonObject.optJSONArray("assets")
+                            var assetUrl: String? = null
+                            if (assets != null && assets.length() > 0) {
+                                assetUrl = assets.getJSONObject(0).optString("browser_download_url")
+                            }
+                            
+                            // Cache the successful result
+                            sharedPrefs.edit()
+                                .putLong("last_check_time", currentTime)
+                                .putString("last_check_version", releaseName)
+                                .putString("last_check_url", assetUrl)
+                                .apply()
+
+                            withContext(Dispatchers.Main) {
+                                if (isNewer) {
+                                    val cleanName = releaseName.ifEmpty { "new version" }
+                                    updateStatusMessage = "A new version ($cleanName) is available"
+                                    updateAvailable = true
+                                    downloadUrl = assetUrl
+                                } else {
+                                    updateStatusMessage = "This is the newest version."
+                                    updateAvailable = false
+                                    downloadUrl = null
+                                }
+                            }
+                        } else {
+                            val errorResponse = try { connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch(e:Exception){""}
+                            Log.e("UpdateCheck", "HTTP Error $responseCode: $errorResponse")
+                            withContext(Dispatchers.Main) {
+                                if (responseCode == 403 && errorResponse.contains("rate limit", ignoreCase = true)) {
+                                    updateStatusMessage = "Too many checks — please try again in a bit."
+                                } else {
+                                    updateStatusMessage = "Couldn't check for updates. Please try again later."
+                                }
+                                updateAvailable = false
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("UpdateCheck", "Exception: ${e.message}", e)
+                        withContext(Dispatchers.Main) {
+                            updateStatusMessage = "Couldn't check for updates. Please try again later."
+                            updateAvailable = false
+                        }
+                    } finally {
+                        withContext(Dispatchers.Main) {
+                            isChecking = false
+                        }
+                    }
                 }
             }
         }

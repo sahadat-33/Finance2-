@@ -74,6 +74,9 @@ fun DashboardScreen(
 
     var isVaultExpanded by remember { mutableStateOf(false) }
 
+    val showAnalysisOnDashboard by viewModel.showAnalysisOnDashboard.collectAsState()
+
+
     if (skeletonVisible) {
         DashboardSkeleton()
     } else {
@@ -90,195 +93,10 @@ fun DashboardScreen(
 
         // No month selector row here since it is synchronized globally in the top app bar
 
-        // Charts Section Panel Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "Income Spent Analysis",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                // Layout incorporating Donut Gauge Drawing
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // Gauge Math
-                    val percentSpentVal = if (stats.totalEarnings > 0) {
-                        (stats.totalExpenses / stats.totalEarnings)
-                    } else 0.0
-                    val percentInt = (percentSpentVal * 100).toInt().coerceIn(0, 100)
-
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(100.dp)
-                            .padding(4.dp)
-                    ) {
-                    val rawSweep = (percentSpentVal * 360f).toFloat().coerceIn(0f, 360f)
-                    val animatedSweep by animateFloatAsState(
-                        targetValue = rawSweep,
-                        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-                        label = "donut_sweep"
-                    )
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val stroke = 12.dp.toPx()
-                            // Leftover / Remaining backing circle (Lite Green)
-                            drawCircle(
-                                color = Color(0xFFBBECC4),
-                                style = Stroke(stroke)
-                            )
-                            // Spent foreground arc (Lite Blue)
-                            drawArc(
-                                color = Color(0xFFA2C2FC),
-                                startAngle = -90f,
-                                sweepAngle = animatedSweep,
-                                useCenter = false,
-                                style = Stroke(stroke, cap = StrokeCap.Round)
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "$percentInt%",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                text = "Spent",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
-
-                    // Stat explanations
-                    Column(
-                        modifier = Modifier.weight(1f).padding(start = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFA2C2FC)))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Spent: ${formatTaka(stats.totalExpenses)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFBBECC4)))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Leftover: ${formatTaka((stats.totalEarnings - stats.totalExpenses - stats.totalSavingsContributed).coerceAtLeast(0.0))}", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Text(
-                            text = "Monthly Savings: ${formatTaka(stats.totalSavingsContributed)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF64B5F6)
-                        )
-                    }
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-
-                // Pie Chart / Colored weight list for Monthly Expenses by Category
-                if (stats.categoryExpenses.isNotEmpty()) {
-                    Text(
-                        text = "Monthly Expenses by Category",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    // Staggered bars (Visual segmented bar) representing each category weight
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(10.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                    ) {
-                        val totalExp = stats.totalExpenses.coerceAtLeast(1.0)
-                        stats.categoryExpenses.forEachIndexed { index, exp ->
-                            val weight = (exp.amount / totalExp).toFloat()
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .weight(weight.coerceAtLeast(0.01f))
-                                    .background(getCategoryColor(index))
-                            )
-                        }
-                    }
-
-                    // List detailed breakdown
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        stats.categoryExpenses.forEachIndexed { index, exp ->
-                            val percent = if (stats.totalExpenses > 0) {
-                                (exp.amount / stats.totalExpenses) * 100
-                            } else 0.0
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(getCategoryColor(index).copy(alpha = 0.13f))
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                                ) {
-                                    Text(
-                                        text = exp.categoryName,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = getCategoryColor(index),
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    Text(
-                                        text = formatTaka(exp.amount),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "${percent.toInt()}%",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No expenses recorded this month.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                        )
-                    }
-                }
-            }
+        if (showAnalysisOnDashboard) {
+            IncomeSpentAnalysisCard(viewModel = viewModel)
         }
+
 
         // Summary Statistics (Left/Right Layout)
         Row(

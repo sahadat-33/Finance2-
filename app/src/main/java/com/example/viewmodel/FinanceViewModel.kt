@@ -88,6 +88,14 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     
     private val _lastSyncType = MutableStateFlow(sharedPrefs.getString("last_sync_type", "Automatic") ?: "Automatic")
     val lastSyncType: StateFlow<String> = _lastSyncType.asStateFlow()
+
+    private val _showAnalysisOnDashboard = MutableStateFlow(sharedPrefs.getBoolean("show_analysis_on_dashboard", true))
+    val showAnalysisOnDashboard: StateFlow<Boolean> = _showAnalysisOnDashboard.asStateFlow()
+
+    fun setShowAnalysisOnDashboard(enabled: Boolean) {
+        _showAnalysisOnDashboard.value = enabled
+        sharedPrefs.edit().putBoolean("show_analysis_on_dashboard", enabled).apply()
+    }
     
     private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "last_sync_timestamp") {

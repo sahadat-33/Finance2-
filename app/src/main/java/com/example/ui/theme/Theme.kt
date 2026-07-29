@@ -216,7 +216,8 @@ fun FinanceTrackerTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = when (themeName) {
-                "Ocean Blue" -> if (darkTheme) BlueDark else BlueLight
+        "Mint Fresh" -> if (darkTheme) MintDark else MintLight
+        "Ocean Blue" -> if (darkTheme) BlueDark else BlueLight
         "Sunset Warm" -> if (darkTheme) WarmDark else WarmLight
         "Lavender Calm" -> if (darkTheme) LavenderDark else LavenderLight
         "Rose Soft" -> if (darkTheme) RoseDark else RoseLight

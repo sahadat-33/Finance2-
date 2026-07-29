@@ -30,9 +30,12 @@ import kotlinx.coroutines.Dispatchers
 import java.io.File
 import java.util.Calendar
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun YearlySummaryScreen(viewModel: FinanceViewModel) {
+fun YearlySummaryScreen(viewModel: FinanceViewModel, onBack: () -> Unit = {}) {
     androidx.compose.runtime.LaunchedEffect(Unit) {
         viewModel.triggerFetchFromCloud()
     }
@@ -67,13 +70,26 @@ fun YearlySummaryScreen(viewModel: FinanceViewModel) {
         }.sortedBy { it.date }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(top = 16.dp, start = 16.dp, end = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Summary") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(innerPadding)
+                .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         // Top Navigation Controls: 2-option Segmented Control / Toggle Tab
         Row(
             modifier = Modifier
@@ -238,9 +254,8 @@ fun YearlySummaryScreen(viewModel: FinanceViewModel) {
             }
         }
 
-
     }
-
+    }
 }
 
 @Composable
