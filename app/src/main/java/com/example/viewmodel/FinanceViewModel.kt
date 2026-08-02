@@ -219,71 +219,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     // Database Flows
     val allTransactions: StateFlow<List<Transaction>> = repository.getAllTransactions()
         .map { rawTx ->
-            val sortedTxs = rawTx.sortedBy { it.date }
-            if (sortedTxs.isEmpty()) return@map rawTx
-            
-            val minCal = Calendar.getInstance().apply { timeInMillis = sortedTxs.first().date }
-            val minYear = minCal.get(Calendar.YEAR)
-            val minMonth = minCal.get(Calendar.MONTH)
-            
-            val maxCal = Calendar.getInstance().apply { timeInMillis = sortedTxs.last().date }
-            val maxYear = maxCal.get(Calendar.YEAR)
-            val maxMonth = maxCal.get(Calendar.MONTH)
-            
-            val resultList = mutableListOf<Transaction>()
-            resultList.addAll(rawTx)
-            
-            var currentCarryover = 0.0
-            
-            var y = minYear
-            var m = minMonth
-            
-            while (y < maxYear || (y == maxYear && m <= maxMonth)) {
-                // If there's an existing carryover entry, skip injecting but it adds to currentCarryover dynamically via normal income processing
-                val hasCarryover = resultList.any { tx -> 
-                    val c = Calendar.getInstance().apply { timeInMillis = tx.date }
-                    c.get(Calendar.YEAR) == y && c.get(Calendar.MONTH) == m && tx.categoryName == "Last Month Carryover"
-                }
-                
-                if (currentCarryover > 0 && !hasCarryover) {
-                    val cal = Calendar.getInstance().apply {
-                        set(Calendar.YEAR, y)
-                        set(Calendar.MONTH, m)
-                        set(Calendar.DAY_OF_MONTH, 1)
-                    }
-                    resultList.add(Transaction(type = "INCOME", categoryName = "Last Month Carryover", amount = currentCarryover, date = cal.timeInMillis, note = "System Carryover"))
-                }
-                
-                // Now calculate the net for this month (which now includes the carryover we just added or organically existed)
-                val monthTx = resultList.filter { tx ->
-                    val c = Calendar.getInstance().apply { timeInMillis = tx.date }
-                    c.get(Calendar.YEAR) == y && c.get(Calendar.MONTH) == m
-                }
-                
-
-                var recv = 0.0
-                var exp = 0.0
-                var sav = 0.0
-                for (tx in monthTx) {
-                    if (tx.type == "INCOME") {
-                        recv += tx.amount
-                    } else if (tx.type == "EXPENSE") {
-                        if (tx.categoryName == "Savings") {
-                            sav += tx.amount
-                        } else {
-                            exp += tx.amount
-                        }
-                    }
-                }
-                currentCarryover = recv - exp - sav
-                
-                m++
-                if (m > 11) {
-                    m = 0
-                    y++
-                }
-            }
-            resultList.sortedByDescending { it.date }
+            rawTx.sortedByDescending { it.date }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isUserSignedInFlow = MutableStateFlow(repository.authManager.isUserSignedIn)

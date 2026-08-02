@@ -257,7 +257,22 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // App title profile card
+            val currentHour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+        val timeGreeting = when (currentHour) {
+            in 5..11 -> "Good Morning"
+            in 12..16 -> "Good Afternoon"
+            in 17..20 -> "Good Evening"
+            else -> "Good Night"
+        }
+        val rotatingMessages = listOf(
+            "Hope you're doing well today.",
+            "Let's keep your finances on track.",
+            "Every entry counts.",
+            "You're doing great managing your money."
+        )
+        val randomMessage = remember { rotatingMessages.random() }
+
+        // App title profile card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -278,7 +293,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    text = "Finance Tracker Dashboard",
+                    text = "$timeGreeting! $randomMessage",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                 )

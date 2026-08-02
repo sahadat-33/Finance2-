@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -38,12 +39,14 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+
 fun AddTransactionDialog(
     onDismiss: () -> Unit,
     viewModel: FinanceViewModel
 ) {
     val currencySymbol by viewModel.currencySymbol.collectAsState()
     val context = LocalContext.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val categories by viewModel.allCategories.collectAsState()
     val vaults by viewModel.allSavingsVault.collectAsState()
 
@@ -181,7 +184,7 @@ fun AddTransactionDialog(
                 OutlinedTextField(
                     value = amountStr,
                     onValueChange = { input ->
-                        if (input.all { it.isDigit() || it == '.' }) amountStr = input
+                        if (input.all { it.isDigit() || it == '.' || it == '+' || it == '-' }) amountStr = input
                     },
                     label = { Text("Amount ($currencySymbol)") },
                     leadingIcon = {
@@ -192,9 +195,41 @@ fun AddTransactionDialog(
                             color = MaterialTheme.colorScheme.primary
                         )
                     },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { amountStr += "+" },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.width(36.dp)
+                            ) {
+                                Text("+", style = MaterialTheme.typography.titleMedium)
+                            }
+                            TextButton(
+                                onClick = { amountStr += "-" },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.width(36.dp)
+                            ) {
+                                Text("-", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number, 
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = {
+                            amountStr = evaluateMathExpression(amountStr)
+                            focusManager.clearFocus()
+                        }
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (!focusState.isFocused) {
+                                amountStr = evaluateMathExpression(amountStr)
+                            }
+                        }
                         .testTag("amount_input"),
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true

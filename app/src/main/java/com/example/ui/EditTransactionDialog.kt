@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -38,6 +39,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+
 fun EditTransactionDialog(
     onDismiss: () -> Unit,
     viewModel: FinanceViewModel,
@@ -45,6 +47,7 @@ fun EditTransactionDialog(
 ) {
     val currencySymbol by viewModel.currencySymbol.collectAsState()
     val context = LocalContext.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val categories by viewModel.allCategories.collectAsState()
     val vaults by viewModel.allSavingsVault.collectAsState()
 
@@ -78,8 +81,14 @@ fun EditTransactionDialog(
     var selectedCategoryName by remember { mutableStateOf(transaction.categoryName) }
     var selectedVaultAsset by remember { mutableStateOf(vaults.firstOrNull()?.assetType ?: "") } // For Savings Transfer/Withdrawal
     
+    var isFirstLaunch by remember { mutableStateOf(true) }
+    
     // Auto-update if vaults change or reset when type changes
     LaunchedEffect(txType, filteredCategories, vaults) {
+        if (isFirstLaunch) {
+            isFirstLaunch = false
+            return@LaunchedEffect
+        }
         if (txType == "SAVINGS_TRANSFER") {
             selectedCategoryName = "Savings"
             if (vaults.isNotEmpty() && vaults.none { it.assetType == selectedVaultAsset }) {
@@ -88,7 +97,9 @@ fun EditTransactionDialog(
                 selectedVaultAsset = ""
             }
         } else {
-            selectedCategoryName = filteredCategories.firstOrNull()?.name ?: "Others"
+            if (filteredCategories.none { it.name == selectedCategoryName }) {
+                selectedCategoryName = filteredCategories.firstOrNull()?.name ?: "Others"
+            }
         }
     }
 
@@ -182,7 +193,7 @@ fun EditTransactionDialog(
                 OutlinedTextField(
                     value = amountStr,
                     onValueChange = { input ->
-                        if (input.all { it.isDigit() || it == '.' }) amountStr = input
+                        if (input.all { it.isDigit() || it == '.' || it == '+' || it == '-' }) amountStr = input
                     },
                     label = { Text("Amount ($currencySymbol)") },
                     leadingIcon = {
@@ -193,9 +204,41 @@ fun EditTransactionDialog(
                             color = MaterialTheme.colorScheme.primary
                         )
                     },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { amountStr += "+" },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.width(36.dp)
+                            ) {
+                                Text("+", style = MaterialTheme.typography.titleMedium)
+                            }
+                            TextButton(
+                                onClick = { amountStr += "-" },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.width(36.dp)
+                            ) {
+                                Text("-", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number, 
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = {
+                            amountStr = evaluateMathExpression(amountStr)
+                            focusManager.clearFocus()
+                        }
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            if (!focusState.isFocused) {
+                                amountStr = evaluateMathExpression(amountStr)
+                            }
+                        }
                         .testTag("amount_input"),
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true

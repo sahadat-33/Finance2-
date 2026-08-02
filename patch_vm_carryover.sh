@@ -1,0 +1,2 @@
+#!/bin/bash
+sed -i -z 's|val allTransactions: StateFlow<List<Transaction>> = repository.getAllTransactions()[^}]*\.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())|val allTransactions: StateFlow<List<Transaction>> = repository.getAllTransactions()\n        .map { rawTx ->\n            rawTx.sortedByDescending { it.date }\n        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())|' app/src/main/java/com/example/viewmodel/FinanceViewModel.kt
