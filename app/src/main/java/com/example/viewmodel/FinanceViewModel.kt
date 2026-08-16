@@ -202,6 +202,630 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun triggerFetchFromCloud() {
+        if (!isCloudSyncEnabled.value) return
+        viewModelScope.launch {
+            val success = repository.cloudSyncManager.fetchFromCloud()
+            if (success) {
+                repository.saveLastSyncTime()
+            }
+        }
+    }
+    
+    fun setCloudSyncEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("cloud_sync_enabled", enabled).apply()
+        _isCloudSyncEnabled.value = enabled
+    }
+
+    private val cryptoPrefs by lazy {
+        val masterKey = MasterKey.Builder(application)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            application,
+            "secret_pin_prefs",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    private val _isBiometricEnabled = MutableStateFlow(sharedPrefs.getBoolean("biometric_enabled", false))
+    val isBiometricEnabled: StateFlow<Boolean> = _isBiometricEnabled.asStateFlow()
+    
+    fun setBiometricEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("biometric_enabled", enabled).apply()
+        _isBiometricEnabled.value = enabled
+    }
+
+    private val _isPinEnabled = MutableStateFlow(sharedPrefs.getBoolean("pin_enabled", false))
+    val isPinEnabled: StateFlow<Boolean> = _isPinEnabled.asStateFlow()
+
+    private val _isAppLocked = MutableStateFlow(sharedPrefs.getBoolean("pin_enabled", false))
+    val isAppLocked: StateFlow<Boolean> = _isAppLocked.asStateFlow()
+
+    fun setPin(pin: String) {
+        cryptoPrefs.edit().putString("app_pin", pin).apply()
+        sharedPrefs.edit().putBoolean("pin_enabled", true).apply()
+        _isPinEnabled.value = true
+    }
+
+    fun verifyPin(pin: String): Boolean {
+        val savedPin = cryptoPrefs.getString("app_pin", null)
+        if (savedPin == pin) {
+            _isAppLocked.value = false
+            return true
+        }
+        return false
+    }
+
+    fun disablePin(pin: String): Boolean {
+        val savedPin = cryptoPrefs.getString("app_pin", null)
+        if (savedPin == pin) {
+            cryptoPrefs.edit().remove("app_pin").apply()
+            sharedPrefs.edit().putBoolean("pin_enabled", false).apply()
+            sharedPrefs.edit().putBoolean("biometric_enabled", false).apply()
+            _isPinEnabled.value = false
+            _isBiometricEnabled.value = false
+            _isAppLocked.value = false
+            return true
+        }
+        return false
+    }
+
+    fun lockApp() {
+        if (_isPinEnabled.value) {
+            _isAppLocked.value = true
+        }
+    }
+    
+    fun unlockApp() {
+        _isAppLocked.value = false
+    }
+
+    private val _selectedCalendar = MutableStateFlow(Calendar.getInstance())
+    val selectedCalendar: StateFlow<Calendar> = _selectedCalendar.asStateFlow()
+
+    val allTransactions: StateFlow<List<Transaction>> = repository.getAllTransactions()
+        .map { rawTx ->
+            rawTx.sortedByDescending { it.date }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isUserSignedInFlow = MutableStateFlow(repository.authManager.isUserSignedIn)
+    val isUserSignedInFlow: StateFlow<Boolean> = _isUserSignedInFlow.asStateFlow()
+
+    private val _isEmailVerifiedFlow = MutableStateFlow(repository.authManager.isEmailVerified)
+    val isEmailVerifiedFlow: StateFlow<Boolean> = _isEmailVerifiedFlow.asStateFlow()
+
+    val allCategories: StateFlow<List<Category>> = repository.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        
+    val allSavingsVault: StateFlow<List<SavingsVault>> = repository.getAllSavingsVault()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        
+    val dynamicVaultBalances: StateFlow<List<SavingsVault>> = allSavingsVault
+        .map { vaults ->
+            vaults.filter { it.amount > 0.0 || vaults.size == 1 }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val monthlyStatsFlow: StateFlow<MonthlyStats> = combine(
+        allTransactions,
+        _selectedCalendar
+    ) { transactions, calendar ->
+        val targetMonth = calendar.get(Calendar.MONTH)
+        val targetYear = calendar.get(Calendar.YEAR)
+
+        val monthlyTransactions = transactions.filter { tx ->
+            val txCal = Calendar.getInstance().apply { timeInMillis = tx.date }
+            txCal.get(Calendar.MONTH) == targetMonth && txCal.get(Calendar.YEAR) == targetYear
+        }.toMutableList()
+
+        var totalEarnings = 0.0
+        var totalExpenses = 0.0
+        var totalSavingsContributed = 0.0
+
+        for (tx in monthlyTransactions) {
+            if (tx.type == "INCOME") {
+                totalEarnings += tx.amount
+            } else if (tx.type == "EXPENSE") {
+                if (tx.categoryName == "Savings") {
+                    totalSavingsContributed += tx.amount
+                } else {
+                    totalExpenses += tx.amount
+                }
+            }
+        }
+
+        val cashBalance = totalEarnings - totalExpenses - totalSavingsContributed
+
+        val expenseTransactions = monthlyTransactions.filter { it.type == "EXPENSE" && it.categoryName != "Savings" }
+        val categoryExpenseMap = expenseTransactions.groupBy { it.categoryName }
+            .mapValues { entry -> entry.value.sumOf { it.amount } }
+        val sortedCategoryExpenses = categoryExpenseMap.entries
+            .map { CategoryAmount(it.key, it.value) }
+            .sortedByDescending { it.amount }
+
+        val earningTransactions = monthlyTransactions.filter { it.type == "INCOME" }
+        val categoryEarningMap = earningTransactions.groupBy { it.categoryName }
+            .mapValues { entry -> entry.value.sumOf { it.amount } }
+        val sortedCategoryEarnings = categoryEarningMap.entries
+            .map { CategoryAmount(it.key, it.value) }
+            .sortedByDescending { it.amount }
+
+        MonthlyStats(
+            totalEarnings = totalEarnings,
+            totalExpenses = totalExpenses,
+            totalSavingsContributed = totalSavingsContributed,
+            cashBalance = cashBalance,
+            transactions = monthlyTransactions,
+            categoryExpenses = sortedCategoryExpenses,
+            categoryEarnings = sortedCategoryEarnings
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MonthlyStats(0.0, 0.0, 0.0, 0.0, emptyList(), emptyList(), emptyList()))
+
+    fun refreshAuthState() {
+        _isUserSignedInFlow.value = repository.authManager.isUserSignedIn
+        _isEmailVerifiedFlow.value = repository.authManager.isEmailVerified
+    }
+    
+    suspend fun createAccount(email: String, pass: String, username: String): Boolean {
+        val success = repository.createAccount(email, pass, username)
+        if (success) {
+            refreshAuthState()
+        }
+        return success
+    }
+
+    suspend fun login(email: String, pass: String): Boolean {
+        val success = repository.login(email, pass)
+        if (success) {
+            refreshAuthState()
+        }
+        return success
+    }
+
+    suspend fun sendPasswordReset(email: String): Boolean {
+        return repository.sendPasswordReset(email)
+    }
+
+    suspend fun updateUsername(username: String): Boolean {
+        return repository.updateUsername(username)
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            repository.signOut()
+            setOfflineGuest(false)
+            refreshAuthState()
+        }
+    }
+    
+    suspend fun checkEmailVerification(): Boolean {
+        val verified = repository.authManager.checkEmailVerification()
+        _isEmailVerifiedFlow.value = verified
+        return verified
+    }
+    
+    val currentUserName: String?
+        get() = repository.authManager.currentUser?.displayName ?: "User"
+
+    val currentUserEmail: String?
+        get() = repository.authManager.currentUser?.email
+
+    fun nextMonth() {
+        val next = _selectedCalendar.value.clone() as Calendar
+        next.add(Calendar.MONTH, 1)
+        _selectedCalendar.value = next
+    }
+
+    fun previousMonth() {
+        val prev = _selectedCalendar.value.clone() as Calendar
+        prev.add(Calendar.MONTH, -1)
+        _selectedCalendar.value = prev
+    }
+
+    fun addTransaction(type: String, categoryName: String, amount: Double, date: Long, note: String, receiptImageUri: String? = null) {
+        viewModelScope.launch {
+            repository.insertTransaction(
+                Transaction(
+                    type = type,
+                    categoryName = categoryName,
+                    amount = amount,
+                    date = date,
+                    note = note,
+                    receiptImageUri = receiptImageUri
+                )
+            )
+        }
+    }
+
+    fun deleteTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.deleteTransaction(transaction)
+        }
+    }
+
+    fun editTransaction(updated: Transaction) {
+        viewModelScope.launch {
+            repository.updateTransaction(updated)
+        }
+    }
+
+    fun addCategory(name: String, type: String) {
+        viewModelScope.launch {
+            repository.insertCategory(
+                Category(name = name, type = type, isDefault = false)
+            )
+        }
+    }
+
+    fun deleteCategory(categoryId: Int) {
+        viewModelScope.launch {
+            repository.deleteCategory(categoryId)
+        }
+    }
+
+    fun renameCategory(id: Int, newName: String) {
+        viewModelScope.launch {
+            repository.renameCategory(id, newName)
+        }
+    }
+
+    fun addSavingsVault(assetType: String, amount: Double) {
+        viewModelScope.launch {
+            repository.insertSavingsVault(SavingsVault(assetType = assetType, amount = amount))
+        }
+    }
+
+    fun updateSavingsVault(vault: SavingsVault) {
+        viewModelScope.launch {
+            repository.updateSavingsVault(vault)
+        }
+    }
+
+    fun editSavingsVault(id: Int, assetType: String, amount: Double) {
+        viewModelScope.launch {
+            val existing = repository.dao.getSavingsVaultById(id)
+            if (existing != null) {
+                repository.updateSavingsVault(existing.copy(assetType = assetType, amount = amount))
+            }
+        }
+    }
+
+    fun updateSavingsAmountDirectly(assetType: String, amount: Double) {
+        viewModelScope.launch {
+            repository.updateSavingsAmountDirectly(assetType, amount)
+        }
+    }
+
+    fun renameSavingsVault(id: Int, newName: String) {
+        viewModelScope.launch {
+            repository.renameSavingsVault(id, newName)
+        }
+    }
+
+    fun deleteSavingsVault(id: Int) {
+        viewModelScope.launch {
+            repository.deleteSavingsVault(id)
+        }
+    }
+
+    fun getYearlySummary(year: Int, transactions: List<Transaction> = allTransactions.value): YearlySummary {
+        val allTx = transactions
+        val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        val monthlyData = mutableListOf<YearlySummaryRow>()
+        
+        var totalRecv = 0.0
+        var totalExp = 0.0
+        var totalSav = 0.0
+        var totalCash = 0.0
+        
+        var maxCash = Double.MIN_VALUE
+        var minCash = Double.MAX_VALUE
+        
+        for (monthIndex in 0..11) {
+            val monthTx = allTx.filter { tx ->
+                val cal = Calendar.getInstance().apply { timeInMillis = tx.date }
+                cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == monthIndex
+            }
+            
+            var recv = 0.0
+            var exp = 0.0
+            var sav = 0.0
+            
+            for (tx in monthTx) {
+                if (tx.type == "INCOME") {
+                    recv += tx.amount
+                } else if (tx.type == "EXPENSE") {
+                    if (tx.categoryName == "Savings") {
+                        sav += tx.amount
+                    } else {
+                        exp += tx.amount
+                    }
+                }
+            }
+            
+            val cash = recv - exp - sav
+            
+            totalRecv += recv
+            totalExp += exp
+            totalSav += sav
+            totalCash = totalRecv - totalExp - totalSav
+            
+            if (cash > maxCash) maxCash = cash
+            if (cash < minCash) minCash = cash
+            
+            monthlyData.add(YearlySummaryRow(months[monthIndex], recv, exp, sav, cash))
+        }
+        
+        val avgRow = YearlySummaryRow("Average", totalRecv/12, totalExp/12, totalSav/12, totalCash/12)
+        val maxRow = YearlySummaryRow("Max", monthlyData.maxOf { it.received }, monthlyData.maxOf { it.expenses }, monthlyData.maxOf { it.savings }, maxCash)
+        val minRow = YearlySummaryRow("Min", monthlyData.minOf { it.received }, monthlyData.minOf { it.expenses }, monthlyData.minOf { it.savings }, minCash)
+        val ttlRow = YearlySummaryRow("Total", totalRecv, totalExp, totalSav, totalCash)
+        
+        return YearlySummary(monthlyData, ttlRow, avgRow, maxRow, minRow)
+    }
+
+    suspend fun reauthenticate(password: String): Boolean {
+        return repository.reauthenticate(password)
+    }
+
+    suspend fun updateEmail(newEmail: String): String {
+        return repository.updateEmail(newEmail)
+    }
+
+    suspend fun deleteAccount(): Boolean {
+        return repository.deleteAccount()
+    }
+    
+    val currentUserId: String?
+        get() = repository.authManager.auth?.currentUser?.uid
+
+    fun startNewYear(carryoverCash: Double, context: android.content.Context) {
+        val currCal = _selectedCalendar.value
+        val year = currCal.get(Calendar.YEAR)
+        
+        try {
+            val summary = getYearlySummary(year)
+            val file = java.io.File(context.filesDir, "archive_$year.json")
+            val content = buildString {
+                append("[\n")
+                summary.monthlyData.forEachIndexed { index, row ->
+                    append("  {\n")
+                    append("    \"month\": \"${row.month}\",\n")
+                    append("    \"received\": ${row.received},\n")
+                    append("    \"expenses\": ${row.expenses},\n")
+                    append("    \"savings\": ${row.savings},\n")
+                    append("    \"cash\": ${row.cash}\n")
+                    append("  }${if (index < summary.monthlyData.size - 1) "," else ""}\n")
+                }
+                append("]")
+            }
+            file.writeText(content)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
+        viewModelScope.launch {
+            repository.dao.deleteAllTransactions()
+            val nextYearCal = Calendar.getInstance().apply {
+                set(Calendar.YEAR, year + 1)
+                set(Calendar.MONTH, Calendar.JANUARY)
+                set(Calendar.DAY_OF_MONTH, 1)
+            }
+            repository.dao.insertTransaction(
+                Transaction(
+                    type = "INCOME",
+                    categoryName = "Last Month Carryover",
+                    amount = carryoverCash,
+                    date = nextYearCal.timeInMillis,
+                    note = "New year starting balance"
+                )
+            )
+            repository.triggerManualSync()
+            _selectedCalendar.value = nextYearCal
+        }
+    }
+}
+
+data class YearlySummaryRow(
+    val month: String,
+    val received: Double,
+    val expenses: Double,
+    val savings: Double,
+    val cash: Double
+)
+
+data class YearlySummary(
+    val monthlyData: List<YearlySummaryRow>,
+    val totalRow: YearlySummaryRow,
+    val averageRow: YearlySummaryRow,
+    val maxRow: YearlySummaryRow,
+    val minRow: YearlySummaryRow
+)
+
+data class CategoryAmount(
+    val categoryName: String,
+    val amount: Double
+)
+
+data class MonthlyStats(
+    val totalEarnings: Double,
+    val totalExpenses: Double,
+    val totalSavingsContributed: Double,
+    val cashBalance: Double,
+    val transactions: List<Transaction>,
+    val categoryExpenses: List<CategoryAmount>,
+    val categoryEarnings: List<CategoryAmount>
+)
+    fun setCurrencySymbol(symbol: String) {
+        sharedPrefs.edit().putString("currency_symbol", symbol).apply()
+        _currencySymbol.value = symbol
+        viewModelScope.launch {
+            repository.cloudSyncManager.updateUserCurrency(symbol)
+        }
+    }
+
+    private val _isOfflineGuest = MutableStateFlow(sharedPrefs.getBoolean("isOfflineGuest", false))
+    val isOfflineGuest: StateFlow<Boolean> = _isOfflineGuest.asStateFlow()
+
+    private val _isOnboardingComplete = MutableStateFlow(sharedPrefs.getBoolean("isOnboardingComplete", false))
+    val isOnboardingComplete: StateFlow<Boolean> = _isOnboardingComplete.asStateFlow()
+
+    fun completeOnboarding() {
+        sharedPrefs.edit().putBoolean("isOnboardingComplete", true).apply()
+        _isOnboardingComplete.value = true
+    }
+
+    fun setOfflineGuest(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("isOfflineGuest", enabled).apply()
+        _isOfflineGuest.value = enabled
+    }
+
+    suspend fun enableOfflineGuest() {
+        sharedPrefs.edit().putBoolean("isOfflineGuest", true).apply()
+        _isOfflineGuest.value = true
+        val txCount = repository.dao.getAllTransactions().size
+        if (txCount > 0) {
+            completeOnboarding()
+        } else {
+            sharedPrefs.edit().putBoolean("isOnboardingComplete", false).apply()
+            _isOnboardingComplete.value = false
+        }
+    }
+
+    fun toggleDarkMode(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean("dark_mode", enabled).apply()
+        _isDarkMode.value = enabled
+    }
+
+    private val _isCloudSyncEnabled = MutableStateFlow(sharedPrefs.getBoolean("cloud_sync_enabled", true))
+    val isCloudSyncEnabled: StateFlow<Boolean> = _isCloudSyncEnabled.asStateFlow()
+
+    private val _lastSyncTimestamp = MutableStateFlow(sharedPrefs.getLong("last_sync_timestamp", 0L))
+    val lastSyncTimestamp: StateFlow<Long> = _lastSyncTimestamp.asStateFlow()
+    
+    private val _lastSyncCount = MutableStateFlow(sharedPrefs.getInt("last_sync_count", 0))
+    val lastSyncCount: StateFlow<Int> = _lastSyncCount.asStateFlow()
+    
+    private val _lastSyncSize = MutableStateFlow(sharedPrefs.getInt("last_sync_size", 0))
+    val lastSyncSize: StateFlow<Int> = _lastSyncSize.asStateFlow()
+    
+    private val _lastSyncType = MutableStateFlow(sharedPrefs.getString("last_sync_type", "Automatic") ?: "Automatic")
+    val lastSyncType: StateFlow<String> = _lastSyncType.asStateFlow()
+
+    private val _showAnalysisOnDashboard = MutableStateFlow(sharedPrefs.getBoolean("show_analysis_on_dashboard", true))
+    val showAnalysisOnDashboard: StateFlow<Boolean> = _showAnalysisOnDashboard.asStateFlow()
+
+    fun setShowAnalysisOnDashboard(enabled: Boolean) {
+        _showAnalysisOnDashboard.value = enabled
+        sharedPrefs.edit().putBoolean("show_analysis_on_dashboard", enabled).apply()
+    }
+
+    private val updatePrefs = application.getSharedPreferences(com.example.data.UpdateCheckWorker.PREFS_NAME, Context.MODE_PRIVATE)
+    
+    private val _availableUpdate = MutableStateFlow<com.example.data.UpdateInfo?>(
+        if (updatePrefs.getBoolean(com.example.data.UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, false)) {
+            val ver = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_AVAILABLE_VERSION, "") ?: ""
+            val url = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_URL, "") ?: ""
+            val notes = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_RELEASE_NOTES, "") ?: ""
+            val force = updatePrefs.getBoolean(com.example.data.UpdateCheckWorker.KEY_FORCE_UPDATE, false)
+            val count = updatePrefs.getInt(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_COUNT, 0)
+            if (ver.isNotEmpty() && url.isNotEmpty()) {
+                com.example.data.UpdateInfo(
+                    version = ver,
+                    downloadUrl = url,
+                    releaseNotes = notes,
+                    forceUpdate = force,
+                    downloadCount = count
+                )
+            } else null
+        } else null
+    )
+    val availableUpdate: StateFlow<com.example.data.UpdateInfo?> = _availableUpdate.asStateFlow()
+
+    private val _showUpdateDialog = MutableStateFlow<Boolean>(false)
+    val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
+    fun dismissUpdateDialog(version: String) {
+        updatePrefs.edit().putString(com.example.data.UpdateCheckWorker.KEY_LAST_DISMISSED_VERSION, version).apply()
+        _showUpdateDialog.value = false
+    }
+
+    fun checkForUpdatesSilently() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentVer = com.example.BuildConfig.VERSION_NAME
+                val info = com.example.data.UpdateChecker.checkForUpdate(currentVer)
+                val lastDismissed = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_LAST_DISMISSED_VERSION, "") ?: ""
+                val now = System.currentTimeMillis()
+                if (info != null) {
+                    updatePrefs.edit()
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, true)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_AVAILABLE_VERSION, info.version)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_URL, info.downloadUrl)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_RELEASE_NOTES, info.releaseNotes)
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_FORCE_UPDATE, info.forceUpdate)
+                        .putInt(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_COUNT, info.downloadCount)
+                        .putLong(com.example.data.UpdateCheckWorker.KEY_LAST_CHECK_TIME, now)
+                        .apply()
+                    _availableUpdate.value = info
+                    if (!lastDismissed.equals(info.version, ignoreCase = true)) {
+                        _showUpdateDialog.value = true
+                    }
+                } else {
+                    updatePrefs.edit()
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, false)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_AVAILABLE_VERSION, "")
+                        .putString(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_URL, "")
+                        .putString(com.example.data.UpdateCheckWorker.KEY_RELEASE_NOTES, "")
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_FORCE_UPDATE, false)
+                        .putInt(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_COUNT, 0)
+                        .putLong(com.example.data.UpdateCheckWorker.KEY_LAST_CHECK_TIME, now)
+                        .apply()
+                    _availableUpdate.value = null
+                    _showUpdateDialog.value = false
+                }
+            } catch (e: Exception) {
+                // Fail silently in background
+            }
+        }
+    }
+    
+    private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+        if (key == "last_sync_timestamp") {
+            _lastSyncTimestamp.value = sharedPreferences.getLong(key, 0L)
+        }
+        if (key == "last_sync_count") {
+            _lastSyncCount.value = sharedPreferences.getInt(key, 0)
+        }
+        if (key == "last_sync_size") {
+            _lastSyncSize.value = sharedPreferences.getInt(key, 0)
+        }
+        if (key == "last_sync_type") {
+            _lastSyncType.value = sharedPreferences.getString(key, "Automatic") ?: "Automatic"
+        }
+    }
+    
+    fun triggerManualSync(onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val result = repository.triggerManualSync()
+            onComplete(result)
+        }
+    }
+
+    init {
+        sharedPrefs.registerOnSharedPreferenceChangeListener(prefListener)
+        com.example.data.UpdateCheckWorker.schedulePeriodicUpdateCheck(application)
+        checkForUpdatesSilently()
+        viewModelScope.launch {
+            val count = repository.dao.getAllTransactions().size
+            if (count > 0 && !sharedPrefs.getBoolean("isOnboardingComplete", false)) {
+                completeOnboarding()
+            }
+        }
+    }
+
 
     fun triggerFetchFromCloud() {
         if (!isCloudSyncEnabled.value) return
