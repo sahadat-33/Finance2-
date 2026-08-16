@@ -105,6 +105,9 @@ interface FinanceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category)
 
+    @Update
+    suspend fun updateCategory(category: Category)
+
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun getCategoryById(id: Int): Category?
     

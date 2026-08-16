@@ -51,6 +51,31 @@ fun EditTransactionDialog(
     val categories by viewModel.allCategories.collectAsState()
     val vaults by viewModel.allSavingsVault.collectAsState()
 
+    // Parse vault and user note from transaction.note if it's a Savings transaction
+    val initialVaultAndNote = remember(transaction) {
+        if (transaction.categoryName == "Savings") {
+            val regex = Regex("""^(?:To|From)\s+(.*?)\s+Vault(?::\s*(.*))?$""", RegexOption.IGNORE_CASE)
+            val match = regex.find(transaction.note)
+            if (match != null) {
+                val vaultName = match.groupValues[1].trim()
+                val userNote = match.groupValues.getOrElse(2) { "" }.trim()
+                Pair(vaultName, userNote)
+            } else {
+                val looseRegex = Regex("""(?:To|From)\s+(.*?)\s+Vault""", RegexOption.IGNORE_CASE)
+                val looseMatch = looseRegex.find(transaction.note)
+                if (looseMatch != null) {
+                    val vaultName = looseMatch.groupValues[1].trim()
+                    val userNote = transaction.note.substringAfter(looseMatch.value).trimStart(' ', ':').trim()
+                    Pair(vaultName, userNote)
+                } else {
+                    Pair("", transaction.note)
+                }
+            }
+        } else {
+            Pair("", transaction.note)
+        }
+    }
+
     // Dialog state
     var txType by remember {
         mutableStateOf(
@@ -62,7 +87,7 @@ fun EditTransactionDialog(
         )
     }
     var amountStr by remember { mutableStateOf(transaction.amount.toString()) }
-    var noteStr by remember { mutableStateOf(transaction.note) }
+    var noteStr by remember { mutableStateOf(initialVaultAndNote.second) }
     
     // Date holding state (defaults to matching today's day/time, aligned to the active month/year state of the app)
     val appActiveMonth = viewModel.selectedCalendar.collectAsState().value
@@ -79,7 +104,12 @@ fun EditTransactionDialog(
     }
 
     var selectedCategoryName by remember { mutableStateOf(transaction.categoryName) }
-    var selectedVaultAsset by remember { mutableStateOf(vaults.firstOrNull()?.assetType ?: "") } // For Savings Transfer/Withdrawal
+    var selectedVaultAsset by remember {
+        mutableStateOf(
+            if (initialVaultAndNote.first.isNotEmpty()) initialVaultAndNote.first
+            else (vaults.firstOrNull()?.assetType ?: "")
+        )
+    } // For Savings Transfer/Withdrawal
     
     var isFirstLaunch by remember { mutableStateOf(true) }
     
@@ -476,14 +506,17 @@ fun EditTransactionDialog(
                             val finalCategory = if (txType == "SAVINGS_TRANSFER") "Savings" else selectedCategoryName
                             
                             // Note holds vault tracking info + optional user notes
+                            val trimmedUserNote = noteStr.trim()
                             val finalNote = when {
                                 txType == "SAVINGS_TRANSFER" -> {
-                                    "To $selectedVaultAsset Vault: $noteStr".trimEnd(' ', ':')
+                                    if (trimmedUserNote.isEmpty()) "To $selectedVaultAsset Vault"
+                                    else "To $selectedVaultAsset Vault: $trimmedUserNote"
                                 }
                                 txType == "INCOME" && selectedCategoryName == "Savings" -> {
-                                    "From $selectedVaultAsset Vault: $noteStr".trimEnd(' ', ':')
+                                    if (trimmedUserNote.isEmpty()) "From $selectedVaultAsset Vault"
+                                    else "From $selectedVaultAsset Vault: $trimmedUserNote"
                                 }
-                                else -> noteStr
+                                else -> trimmedUserNote
                             }
 
                             viewModel.editTransaction(

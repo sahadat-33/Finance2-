@@ -467,14 +467,17 @@ fun AddTransactionDialog(
                             val finalCategory = if (txType == "SAVINGS_TRANSFER") "Savings" else selectedCategoryName
                             
                             // Note holds vault tracking info + optional user notes
+                            val trimmedUserNote = noteStr.trim()
                             val finalNote = when {
                                 txType == "SAVINGS_TRANSFER" -> {
-                                    "To $selectedVaultAsset Vault: $noteStr".trimEnd(' ', ':')
+                                    if (trimmedUserNote.isEmpty()) "To $selectedVaultAsset Vault"
+                                    else "To $selectedVaultAsset Vault: $trimmedUserNote"
                                 }
                                 txType == "INCOME" && selectedCategoryName == "Savings" -> {
-                                    "From $selectedVaultAsset Vault: $noteStr".trimEnd(' ', ':')
+                                    if (trimmedUserNote.isEmpty()) "From $selectedVaultAsset Vault"
+                                    else "From $selectedVaultAsset Vault: $trimmedUserNote"
                                 }
-                                else -> noteStr
+                                else -> trimmedUserNote
                             }
 
                             viewModel.addTransaction(

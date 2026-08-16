@@ -327,6 +327,29 @@ class FinanceRepository(private val context: Context) {
         triggerImmediateSync()
     }
 
+    suspend fun renameCategory(categoryId: Int, newName: String) = withContext(Dispatchers.IO) {
+        val trimmedNewName = newName.trim()
+        if (trimmedNewName.isBlank()) return@withContext
+        val category = dao.getCategoryById(categoryId) ?: return@withContext
+        val oldName = category.name.trim()
+        if (oldName.equals(trimmedNewName, ignoreCase = true)) return@withContext
+
+        val now = System.currentTimeMillis()
+        // 1. Update the category record in Room
+        dao.updateCategory(category.copy(name = trimmedNewName, updatedAt = now))
+
+        // 2. Update any existing transactions that reference this category by name
+        val allTransactions = dao.getAllTransactions()
+        for (tx in allTransactions) {
+            if (tx.categoryName.equals(oldName, ignoreCase = true)) {
+                dao.updateTransaction(tx.copy(categoryName = trimmedNewName, updatedAt = now))
+            }
+        }
+
+        // 3. Trigger sync to push changes to Firestore
+        triggerImmediateSync()
+    }
+
     private suspend fun detectAssetType(note: String): String? {
         val regex = Regex("(?:To|From) (.*?) Vault", RegexOption.IGNORE_CASE)
         val match = regex.find(note)
