@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.example.ui.theme.*
 import com.example.viewmodel.FinanceViewModel
 import com.example.viewmodel.MonthlyStats
+import com.example.data.SavingsVault
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -338,7 +339,9 @@ fun DashboardScreen(
                             val assetIcon = Icons.Default.AccountBalance
     
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {

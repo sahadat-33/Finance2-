@@ -1,13 +1,12 @@
 package com.example.ui
 
-import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
 import android.util.Log
-import android.os.Environment
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -15,181 +14,113 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.painterResource
+import com.example.BuildConfig
 import com.example.R
+import com.example.data.UpdateCheckWorker
+import com.example.data.UpdateChecker
+import com.example.data.UpdateInfo
+import com.example.viewmodel.FinanceViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import com.example.BuildConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UpdateScreen(onBack: () -> Unit, onNavigateToAbout: () -> Unit) {
+fun UpdateScreen(
+    viewModel: FinanceViewModel? = null,
+    onBack: () -> Unit,
+    onNavigateToAbout: () -> Unit,
+    onNavigateToReleaseNotes: () -> Unit = {}
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
+    val updatePrefs = remember {
+        context.getSharedPreferences(UpdateCheckWorker.PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // Read initial update availability immediately from persistent storage (set by UpdateCheckWorker / ViewModel)
+    val savedIsAvailable = updatePrefs.getBoolean(UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, false)
+    val savedVersion = updatePrefs.getString(UpdateCheckWorker.KEY_AVAILABLE_VERSION, "") ?: ""
+    val savedUrl = updatePrefs.getString(UpdateCheckWorker.KEY_DOWNLOAD_URL, "") ?: ""
+    val savedNotes = updatePrefs.getString(UpdateCheckWorker.KEY_RELEASE_NOTES, "") ?: ""
+    val savedForce = updatePrefs.getBoolean(UpdateCheckWorker.KEY_FORCE_UPDATE, false)
+    val savedCount = updatePrefs.getInt(UpdateCheckWorker.KEY_DOWNLOAD_COUNT, 0)
+
     var isChecking by remember { mutableStateOf(false) }
-    var updateStatusMessage by remember { mutableStateOf("Up to date") }
-    var updateAvailable by remember { mutableStateOf(false) }
-    var downloadUrl by remember { mutableStateOf<String?>(null) }
-    var checkAttempted by remember { mutableStateOf(false) }
-
-    fun parseVersion(versionStr: String): List<Int> {
-        return versionStr.replace(Regex("[^0-9.]"), "").split(".").mapNotNull { it.toIntOrNull() }
+    var updateAvailable by remember {
+        mutableStateOf(savedIsAvailable && savedVersion.isNotEmpty() && savedUrl.isNotEmpty())
     }
-
-    fun isNewerVersion(current: String, latest: String): Boolean {
-        val currentParts = parseVersion(current)
-        val latestParts = parseVersion(latest)
-        val maxLength = maxOf(currentParts.size, latestParts.size)
-        
-        for (i in 0 until maxLength) {
-            val curr = currentParts.getOrElse(i) { 0 }
-            val lat = latestParts.getOrElse(i) { 0 }
-            if (lat > curr) return true
-            if (lat < curr) return false
-        }
-        return false
+    var availableVersionName by remember { mutableStateOf(savedVersion) }
+    var downloadUrl by remember { mutableStateOf<String?>(if (savedUrl.isNotEmpty()) savedUrl else null) }
+    var releaseNotesText by remember { mutableStateOf(savedNotes) }
+    var forceUpdateFlag by remember { mutableStateOf(savedForce) }
+    var downloadCountVal by remember { mutableStateOf(savedCount) }
+    var updateStatusMessage by remember {
+        mutableStateOf(if (updateAvailable) "" else "Up to date")
     }
+    var showDialog by remember { mutableStateOf(false) }
 
-    fun checkForUpdates() {
+    fun checkForUpdates(openDialogIfAvailable: Boolean = true) {
         if (isChecking) return
         isChecking = true
-        checkAttempted = true
-        
-        val sharedPrefs = context.getSharedPreferences("UpdateCache", Context.MODE_PRIVATE)
-        val lastCheckTime = sharedPrefs.getLong("last_check_time", 0L)
-        val lastCheckVersion = sharedPrefs.getString("last_check_version", null)
-        val lastCheckUrl = sharedPrefs.getString("last_check_url", null)
-        val currentTime = System.currentTimeMillis()
-        
-        // 1 hour cache = 3600000 ms
-        if (currentTime - lastCheckTime < 3600000L && lastCheckVersion != null) {
-            val currentVersion = BuildConfig.VERSION_NAME
-            val isNewer = isNewerVersion(currentVersion, lastCheckVersion)
-            if (isNewer) {
-                val cleanName = lastCheckVersion.ifEmpty { "new version" }
-                updateStatusMessage = "A new version ($cleanName) is available"
-                updateAvailable = true
-                downloadUrl = lastCheckUrl
-            } else {
-                updateStatusMessage = "This is the newest version."
-                updateAvailable = false
-                downloadUrl = null
-            }
-            isChecking = false
-            return
-        }
 
         coroutineScope.launch(Dispatchers.IO) {
             val currentVersion = BuildConfig.VERSION_NAME
-            val primaryResult = runCatching {
-                kotlinx.coroutines.withTimeoutOrNull(8_000L) {
-                    com.example.data.UpdateChecker.checkForUpdate(currentVersion)
-                }
-            }
-            
-            when {
-                primaryResult.isSuccess && primaryResult.getOrNull() != null -> {
-                    val info = primaryResult.getOrNull()!!
-                    val releaseName = info.version
-                    val assetUrl = info.downloadUrl
-                    sharedPrefs.edit()
-                        .putLong("last_check_time", currentTime)
-                        .putString("last_check_version", releaseName)
-                        .putString("last_check_url", assetUrl)
-                        .apply()
-                    withContext(Dispatchers.Main) {
-                        val cleanName = releaseName.ifEmpty { "new version" }
-                        updateStatusMessage = "A new version ($cleanName) is available"
+            try {
+                val info = UpdateChecker.checkForUpdate(currentVersion)
+                val now = System.currentTimeMillis()
+                withContext(Dispatchers.Main) {
+                    if (info != null) {
+                        updatePrefs.edit()
+                            .putBoolean(UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, true)
+                            .putString(UpdateCheckWorker.KEY_AVAILABLE_VERSION, info.version)
+                            .putString(UpdateCheckWorker.KEY_DOWNLOAD_URL, info.downloadUrl)
+                            .putString(UpdateCheckWorker.KEY_RELEASE_NOTES, info.releaseNotes)
+                            .putBoolean(UpdateCheckWorker.KEY_FORCE_UPDATE, info.forceUpdate)
+                            .putInt(UpdateCheckWorker.KEY_DOWNLOAD_COUNT, info.downloadCount)
+                            .putLong(UpdateCheckWorker.KEY_LAST_CHECK_TIME, now)
+                            .apply()
+
                         updateAvailable = true
-                        downloadUrl = assetUrl
-                        isChecking = false
-                    }
-                }
-                primaryResult.isSuccess -> {
-                    sharedPrefs.edit()
-                        .putLong("last_check_time", currentTime)
-                        .putString("last_check_version", currentVersion)
-                        .putString("last_check_url", null)
-                        .apply()
-                    withContext(Dispatchers.Main) {
-                        updateStatusMessage = "This is the newest version."
+                        availableVersionName = info.version
+                        downloadUrl = info.downloadUrl
+                        releaseNotesText = info.releaseNotes
+                        forceUpdateFlag = info.forceUpdate
+                        downloadCountVal = info.downloadCount
+                        updateStatusMessage = ""
+                        if (openDialogIfAvailable) {
+                            showDialog = true
+                        }
+                    } else {
+                        updatePrefs.edit()
+                            .putBoolean(UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, false)
+                            .putString(UpdateCheckWorker.KEY_AVAILABLE_VERSION, "")
+                            .putString(UpdateCheckWorker.KEY_DOWNLOAD_URL, "")
+                            .putString(UpdateCheckWorker.KEY_RELEASE_NOTES, "")
+                            .putBoolean(UpdateCheckWorker.KEY_FORCE_UPDATE, false)
+                            .putInt(UpdateCheckWorker.KEY_DOWNLOAD_COUNT, 0)
+                            .putLong(UpdateCheckWorker.KEY_LAST_CHECK_TIME, now)
+                            .apply()
+
                         updateAvailable = false
                         downloadUrl = null
-                        isChecking = false
+                        availableVersionName = ""
+                        updateStatusMessage = "This is the newest version."
                     }
+                    isChecking = false
                 }
-                else -> {
-                    try {
-                        val url = URL("https://api.github.com/repos/sahadat-33/Finance2-/releases/tags/Apk")
-                        val connection = url.openConnection() as HttpURLConnection
-                        connection.requestMethod = "GET"
-                        connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                        connection.setRequestProperty("User-Agent", "FinanceTracker-App")
-                        
-                        val responseCode = connection.responseCode
-                        if (responseCode == 200) {
-                            val response = connection.inputStream.bufferedReader().use { it.readText() }
-                            val jsonObject = JSONObject(response)
-                            val releaseName = jsonObject.optString("name", "") // e.g., "v4.0.6"
-                            
-                            val isNewer = isNewerVersion(currentVersion, releaseName)
-                            
-                            val assets = jsonObject.optJSONArray("assets")
-                            var assetUrl: String? = null
-                            if (assets != null && assets.length() > 0) {
-                                assetUrl = assets.getJSONObject(0).optString("browser_download_url")
-                            }
-                            
-                            // Cache the successful result
-                            sharedPrefs.edit()
-                                .putLong("last_check_time", currentTime)
-                                .putString("last_check_version", releaseName)
-                                .putString("last_check_url", assetUrl)
-                                .apply()
-
-                            withContext(Dispatchers.Main) {
-                                if (isNewer) {
-                                    val cleanName = releaseName.ifEmpty { "new version" }
-                                    updateStatusMessage = "A new version ($cleanName) is available"
-                                    updateAvailable = true
-                                    downloadUrl = assetUrl
-                                } else {
-                                    updateStatusMessage = "This is the newest version."
-                                    updateAvailable = false
-                                    downloadUrl = null
-                                }
-                            }
-                        } else {
-                            val errorResponse = try { connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "" } catch(e:Exception){""}
-                            Log.e("UpdateCheck", "HTTP Error $responseCode: $errorResponse")
-                            withContext(Dispatchers.Main) {
-                                if (responseCode == 403 && errorResponse.contains("rate limit", ignoreCase = true)) {
-                                    updateStatusMessage = "Too many checks — please try again in a bit."
-                                } else {
-                                    updateStatusMessage = "Couldn't check for updates. Please try again later."
-                                }
-                                updateAvailable = false
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("UpdateCheck", "Exception: ${e.message}", e)
-                        withContext(Dispatchers.Main) {
-                            updateStatusMessage = "Couldn't check for updates. Please try again later."
-                            updateAvailable = false
-                        }
-                    } finally {
-                        withContext(Dispatchers.Main) {
-                            isChecking = false
-                        }
-                    }
+            } catch (e: Exception) {
+                Log.e("UpdateCheck", "Exception: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    updateStatusMessage = "Couldn't check for updates. Please try again later."
+                    isChecking = false
                 }
             }
         }
@@ -214,26 +145,42 @@ fun UpdateScreen(onBack: () -> Unit, onNavigateToAbout: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             
-            Image(
-                painter = painterResource(id = R.drawable.icon_image_1780221523424),
-                contentDescription = "App Icon",
-                modifier = Modifier.size(64.dp)
-            )
+            // Circular App Icon matching Snaptube style
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shadowElevation = 4.dp,
+                modifier = Modifier.size(80.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.icon_image_1780221523424),
+                        contentDescription = "Finance Tracker App Icon",
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                    )
+                }
+            }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
             
             Text(
                 text = "Finance Tracker",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             
             Text(
                 text = "Version ${BuildConfig.VERSION_NAME}",
@@ -241,75 +188,123 @@ fun UpdateScreen(onBack: () -> Unit, onNavigateToAbout: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            Spacer(modifier = Modifier.height(56.dp))
+            Spacer(modifier = Modifier.height(40.dp))
             
-            Row(
+            // "Check for updates" Row
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
                     .clickable(enabled = !isChecking) {
-                        checkForUpdates()
+                        if (updateAvailable && downloadUrl != null) {
+                            showDialog = true
+                        } else {
+                            checkForUpdates(openDialogIfAvailable = true)
+                        }
                     }
-                    .padding(vertical = 16.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .testTag("check_for_updates_row"),
+                color = MaterialTheme.colorScheme.surface
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Check for updates",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (isChecking) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (!isChecking) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = updateStatusMessage,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "Check for updates",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isChecking) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (updateAvailable) {
+                            // Red Pill "New" Badge
+                            Surface(
+                                color = MaterialTheme.colorScheme.error,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.testTag("new_update_badge")
+                            ) {
+                                Text(
+                                    text = "New",
+                                    color = androidx.compose.ui.graphics.Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                        } else if (!isChecking && updateStatusMessage.isNotEmpty()) {
+                            Text(
+                                text = updateStatusMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Navigate to update",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
+                }
+            }
+
+            // "Release notes" Row (temporarily hidden for later use)
+            /*
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onNavigateToReleaseNotes() }
+                    .testTag("release_notes_row"),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp, horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Release notes",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
+                        contentDescription = "Navigate to release notes",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            
-            if (updateAvailable && downloadUrl != null) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = {
-                        try {
-                            val request = DownloadManager.Request(Uri.parse(downloadUrl))
-                            request.setTitle("Finance Tracker Update")
-                            request.setDescription("Downloading latest version...")
-                            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Finance-Tracker_latest.apk")
-                            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                            downloadManager.enqueue(request)
-                        } catch (e: Exception) {
-                            // Ignored
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Download Update")
-                }
-            }
+            */
             
             Spacer(modifier = Modifier.weight(1f))
             
             Text(
                 text = "Credits",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable { onNavigateToAbout() }.padding(8.dp)
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onNavigateToAbout() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .testTag("credits_button")
             )
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -317,11 +312,30 @@ fun UpdateScreen(onBack: () -> Unit, onNavigateToAbout: () -> Unit) {
             Text(
                 text = "©2026 Finance-tracker",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                fontWeight = FontWeight.Bold
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Normal
             )
             
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // Snaptube-style Popup Dialog when update is available and tapped
+        if (showDialog && updateAvailable && downloadUrl != null) {
+            UpdateDialog(
+                updateInfo = UpdateInfo(
+                    version = availableVersionName.ifEmpty { "new version" },
+                    downloadUrl = downloadUrl!!,
+                    releaseNotes = releaseNotesText,
+                    forceUpdate = forceUpdateFlag,
+                    downloadCount = downloadCountVal
+                ),
+                onDismiss = {
+                    showDialog = false
+                },
+                onUpdate = {
+                    showDialog = false
+                }
+            )
         }
     }
 }

@@ -14,6 +14,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.border
+import com.example.data.Category
+import com.example.data.SavingsVault
 
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -30,6 +32,8 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,17 +105,38 @@ fun SettingsScreen(
     val isUserSignedIn by viewModel.isUserSignedInFlow.collectAsState()
     val currentUserName = viewModel.currentUserName
     val isOfflineGuest by viewModel.isOfflineGuest.collectAsState()
-
-
-
-
-
-    
+    val currencySymbol by viewModel.currencySymbol.collectAsState()
 
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showVaultDialog by remember { mutableStateOf(false) }
+    var selectedVaultToRename by remember { mutableStateOf<SavingsVault?>(null) }
+    var selectedCategoryToRename by remember { mutableStateOf<Category?>(null) }
     var showThemeDialog by remember { mutableStateOf(false) }
     val themes = listOf("Mint Fresh", "Ocean Blue", "Sunset Warm", "Lavender Calm", "Rose Soft")
+
+    val vaultToRename = selectedVaultToRename
+    if (vaultToRename != null) {
+        RenameSavingsVaultDialog(
+            vault = vaultToRename,
+            onDismiss = { selectedVaultToRename = null },
+            onRename = { newName ->
+                viewModel.renameSavingsVault(vaultToRename.id, newName)
+                selectedVaultToRename = null
+            }
+        )
+    }
+
+    val categoryToRename = selectedCategoryToRename
+    if (categoryToRename != null) {
+        RenameCategoryDialog(
+            category = categoryToRename,
+            onDismiss = { selectedCategoryToRename = null },
+            onRename = { newName ->
+                viewModel.renameCategory(categoryToRename.id, newName)
+                selectedCategoryToRename = null
+            }
+        )
+    }
 
 
     if (showCategoryDialog) {
@@ -145,10 +170,24 @@ fun SettingsScreen(
                     }
 
                     Text("Income Sources", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = EarningGreen)
-                    incomeCategories.forEach { cat -> CategoryRow(cat.name, cat.isDefault, EarningGreen) { viewModel.deleteCategory(cat.id) } }
+                    incomeCategories.forEach { cat -> 
+                        CategoryRow(
+                            category = cat, 
+                            color = EarningGreen, 
+                            onRename = { selectedCategoryToRename = cat },
+                            onDelete = { viewModel.deleteCategory(cat.id) }
+                        ) 
+                    }
 
                     Text("Expense Slates", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = ExpenseRed)
-                    expenseCategories.forEach { cat -> CategoryRow(cat.name, cat.isDefault, ExpenseRed) { viewModel.deleteCategory(cat.id) } }
+                    expenseCategories.forEach { cat -> 
+                        CategoryRow(
+                            category = cat, 
+                            color = ExpenseRed, 
+                            onRename = { selectedCategoryToRename = cat },
+                            onDelete = { viewModel.deleteCategory(cat.id) }
+                        ) 
+                    }
 
                     Spacer(Modifier.height(16.dp))
                     Button(onClick = { showCategoryDialog = false }, modifier = Modifier.fillMaxWidth()) { Text("Close") }
@@ -176,7 +215,15 @@ fun SettingsScreen(
                     if (savingsVaults.isEmpty()) {
                         Text("No Vaults Found", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                     } else {
-                        savingsVaults.forEach { vault -> CategoryRow(vault.assetType, false, MaterialTheme.colorScheme.primary) { viewModel.deleteSavingsVault(vault.id) } }
+                        savingsVaults.forEach { vault ->
+                            VaultRow(
+                                vault = vault,
+                                currencySymbol = currencySymbol,
+                                color = MaterialTheme.colorScheme.primary,
+                                onRename = { selectedVaultToRename = vault },
+                                onDelete = { viewModel.deleteSavingsVault(vault.id) }
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(16.dp))
@@ -409,9 +456,9 @@ fun SettingsScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CategoryRow(
-    categoryName: String,
-    isDefault: Boolean,
+    category: Category,
     color: Color,
+    onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -419,9 +466,9 @@ fun CategoryRow(
     if (showDeleteConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
-            title = { Text("Delete '$categoryName'") },
+            title = { Text("Delete '${category.name}'") },
             text = {
-                Text("Are you sure you want to delete '$categoryName'?")
+                Text("Are you sure you want to delete '${category.name}'?")
             },
             confirmButton = {
                 TextButton(
@@ -444,12 +491,11 @@ fun CategoryRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("category_row_$categoryName")
+            .testTag("category_row_${category.name}")
+            .clip(RoundedCornerShape(12.dp))
             .combinedClickable(
                 onClick = { /* Soft feedback on click */ },
-                onLongClick = {
-                    showDeleteConfirmDialog = true
-                }
+                onLongClick = onRename
             ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -483,7 +529,7 @@ fun CategoryRow(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = categoryName,
+                        text = category.name,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -496,11 +542,119 @@ fun CategoryRow(
                 onClick = { showDeleteConfirmDialog = true },
                 modifier = Modifier
                     .size(28.dp)
-                    .testTag("delete_cat_btn_$categoryName")
+                    .testTag("delete_cat_btn_${category.name}")
             ) {
                 Icon(
                     imageVector = Icons.Default.DeleteOutline,
                     contentDescription = "Delete label",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun VaultRow(
+    vault: SavingsVault,
+    currencySymbol: String,
+    color: Color,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete '${vault.assetType}'") },
+            text = {
+                Text("Are you sure you want to delete '${vault.assetType}'? This will remove the vault and its balance.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteConfirmDialog = false
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("vault_row_${vault.assetType}")
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onLongClick = onRename,
+                onClick = { }
+            ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(color.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Savings,
+                        contentDescription = "Vault",
+                        tint = color,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = vault.assetType,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$currencySymbol${String.format(java.util.Locale.US, "%,.2f", vault.amount)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = { showDeleteConfirmDialog = true },
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag("delete_vault_btn_${vault.assetType}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Delete vault",
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
                     modifier = Modifier.size(18.dp)
                 )

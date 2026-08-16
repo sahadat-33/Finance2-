@@ -10,6 +10,7 @@ import com.example.data.SavingsVault
 import com.example.data.Transaction
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import java.util.Calendar
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -96,6 +97,76 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _showAnalysisOnDashboard.value = enabled
         sharedPrefs.edit().putBoolean("show_analysis_on_dashboard", enabled).apply()
     }
+
+    private val updatePrefs = application.getSharedPreferences(com.example.data.UpdateCheckWorker.PREFS_NAME, Context.MODE_PRIVATE)
+    
+    private val _availableUpdate = MutableStateFlow<com.example.data.UpdateInfo?>(
+        if (updatePrefs.getBoolean(com.example.data.UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, false)) {
+            val ver = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_AVAILABLE_VERSION, "") ?: ""
+            val url = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_URL, "") ?: ""
+            val notes = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_RELEASE_NOTES, "") ?: ""
+            val force = updatePrefs.getBoolean(com.example.data.UpdateCheckWorker.KEY_FORCE_UPDATE, false)
+            val count = updatePrefs.getInt(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_COUNT, 0)
+            if (ver.isNotEmpty() && url.isNotEmpty()) {
+                com.example.data.UpdateInfo(
+                    version = ver,
+                    downloadUrl = url,
+                    releaseNotes = notes,
+                    forceUpdate = force,
+                    downloadCount = count
+                )
+            } else null
+        } else null
+    )
+    val availableUpdate: StateFlow<com.example.data.UpdateInfo?> = _availableUpdate.asStateFlow()
+
+    private val _showUpdateDialog = MutableStateFlow<Boolean>(false)
+    val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
+    fun dismissUpdateDialog(version: String) {
+        updatePrefs.edit().putString(com.example.data.UpdateCheckWorker.KEY_LAST_DISMISSED_VERSION, version).apply()
+        _showUpdateDialog.value = false
+    }
+
+    fun checkForUpdatesSilently() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentVer = com.example.BuildConfig.VERSION_NAME
+                val info = com.example.data.UpdateChecker.checkForUpdate(currentVer)
+                val lastDismissed = updatePrefs.getString(com.example.data.UpdateCheckWorker.KEY_LAST_DISMISSED_VERSION, "") ?: ""
+                val now = System.currentTimeMillis()
+                if (info != null) {
+                    updatePrefs.edit()
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, true)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_AVAILABLE_VERSION, info.version)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_URL, info.downloadUrl)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_RELEASE_NOTES, info.releaseNotes)
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_FORCE_UPDATE, info.forceUpdate)
+                        .putInt(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_COUNT, info.downloadCount)
+                        .putLong(com.example.data.UpdateCheckWorker.KEY_LAST_CHECK_TIME, now)
+                        .apply()
+                    _availableUpdate.value = info
+                    if (!lastDismissed.equals(info.version, ignoreCase = true)) {
+                        _showUpdateDialog.value = true
+                    }
+                } else {
+                    updatePrefs.edit()
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_IS_UPDATE_AVAILABLE, false)
+                        .putString(com.example.data.UpdateCheckWorker.KEY_AVAILABLE_VERSION, "")
+                        .putString(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_URL, "")
+                        .putString(com.example.data.UpdateCheckWorker.KEY_RELEASE_NOTES, "")
+                        .putBoolean(com.example.data.UpdateCheckWorker.KEY_FORCE_UPDATE, false)
+                        .putInt(com.example.data.UpdateCheckWorker.KEY_DOWNLOAD_COUNT, 0)
+                        .putLong(com.example.data.UpdateCheckWorker.KEY_LAST_CHECK_TIME, now)
+                        .apply()
+                    _availableUpdate.value = null
+                    _showUpdateDialog.value = false
+                }
+            } catch (e: Exception) {
+                // Fail silently in background
+            }
+        }
+    }
     
     private val prefListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "last_sync_timestamp") {
@@ -121,6 +192,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         sharedPrefs.registerOnSharedPreferenceChangeListener(prefListener)
+        com.example.data.UpdateCheckWorker.schedulePeriodicUpdateCheck(application)
+        checkForUpdatesSilently()
         viewModelScope.launch {
             val count = repository.dao.getAllTransactions().size
             if (count > 0 && !sharedPrefs.getBoolean("isOnboardingComplete", false)) {
@@ -396,9 +469,42 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun renameCategory(id: Int, newName: String) {
+        viewModelScope.launch {
+            repository.renameCategory(id, newName)
+        }
+    }
+
     fun addSavingsVault(assetType: String, amount: Double) {
         viewModelScope.launch {
             repository.insertSavingsVault(SavingsVault(assetType = assetType, amount = amount))
+        }
+    }
+
+    fun updateSavingsVault(vault: SavingsVault) {
+        viewModelScope.launch {
+            repository.updateSavingsVault(vault)
+        }
+    }
+
+    fun editSavingsVault(id: Int, assetType: String, amount: Double) {
+        viewModelScope.launch {
+            val existing = repository.dao.getSavingsVaultById(id)
+            if (existing != null) {
+                repository.updateSavingsVault(existing.copy(assetType = assetType, amount = amount))
+            }
+        }
+    }
+
+    fun updateSavingsAmountDirectly(assetType: String, amount: Double) {
+        viewModelScope.launch {
+            repository.updateSavingsAmountDirectly(assetType, amount)
+        }
+    }
+
+    fun renameSavingsVault(id: Int, newName: String) {
+        viewModelScope.launch {
+            repository.renameSavingsVault(id, newName)
         }
     }
 

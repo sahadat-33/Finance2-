@@ -16,7 +16,7 @@ android {
     minSdk = 24
     targetSdk = 36
     versionCode = 4
-    versionName = "4.1.2"
+    versionName = "4.1.3"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -102,6 +102,7 @@ dependencies {
   implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
   implementation(libs.androidx.security.crypto)
   implementation(libs.androidx.work.runtime.ktx)
+  implementation("com.airbnb.android:lottie-compose:6.4.0")
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)

@@ -90,6 +90,12 @@ interface FinanceDao {
     @Delete
     suspend fun deleteTransaction(transaction: Transaction)
 
+    @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
+    suspend fun getTransactionById(id: Int): Transaction?
+
+    @Query("SELECT * FROM transactions WHERE uuid = :uuid LIMIT 1")
+    suspend fun getTransactionByUuid(uuid: String): Transaction?
+
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteTransactionById(id: Int)
 
@@ -111,14 +117,26 @@ interface FinanceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSavingsVault(vault: SavingsVault)
 
+    @Update
+    suspend fun updateSavingsVault(vault: SavingsVault)
+
+    @Delete
+    suspend fun deleteSavingsVault(vault: SavingsVault)
+
     @Query("UPDATE savings_vault SET amount = :amount, updatedAt = :updatedAt WHERE assetType = :assetType")
     suspend fun updateSavingsAmount(assetType: String, amount: Double, updatedAt: Long = System.currentTimeMillis())
 
     @Query("SELECT * FROM savings_vault WHERE id = :id")
     suspend fun getSavingsVaultById(id: Int): SavingsVault?
+
+    @Query("SELECT * FROM savings_vault WHERE uuid = :uuid LIMIT 1")
+    suspend fun getSavingsVaultByUuid(uuid: String): SavingsVault?
     
     @Query("DELETE FROM savings_vault WHERE id = :id")
     suspend fun deleteSavingsVaultById(id: Int)
+
+    @Query("DELETE FROM savings_vault WHERE uuid = :uuid")
+    suspend fun deleteSavingsVaultByUuid(uuid: String)
 
     @Query("SELECT * FROM transactions ORDER BY date DESC")
     suspend fun getAllTransactions(): List<Transaction>
@@ -144,7 +162,7 @@ interface FinanceDao {
         deleteAllSavingsVaults()
     }
 
-    @Query("SELECT * FROM savings_vault WHERE assetType = :assetType LIMIT 1")
+    @Query("SELECT * FROM savings_vault WHERE LOWER(TRIM(assetType)) = LOWER(TRIM(:assetType)) LIMIT 1")
     suspend fun getSavingsVaultByAssetType(assetType: String): SavingsVault?
 }
 

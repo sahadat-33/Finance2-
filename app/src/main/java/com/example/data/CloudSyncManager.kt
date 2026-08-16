@@ -130,16 +130,20 @@ class CloudSyncManager(private val dao: FinanceDao) {
             }
 
             val savingsSnapshot = firestore!!.collection("users").document(user.uid).collection("savings").get().await()
-            val localSv = dao.getAllSavingsVaults().associateBy { it.uuid }
+            val localVaults = dao.getAllSavingsVaults()
+            val localSvByUuid = localVaults.associateBy { it.uuid }
+            val localSvByName = localVaults.associateBy { it.assetType.trim().lowercase() }
             for (doc in savingsSnapshot.documents) {
                 val data = doc.data ?: continue
                 try {
                     val remoteSv = SavingsVault.fromMap(data, doc.id)
-                    val local = localSv[remoteSv.uuid]
+                    val local = localSvByUuid[remoteSv.uuid] ?: localSvByName[remoteSv.assetType.trim().lowercase()]
                     if (local == null) {
                         dao.insertSavingsVault(remoteSv.copy(id = 0))
                     } else if (remoteSv.updatedAt > local.updatedAt) {
-                        dao.insertSavingsVault(remoteSv.copy(id = local.id))
+                        dao.updateSavingsVault(remoteSv.copy(id = local.id))
+                    } else if (local.updatedAt > remoteSv.updatedAt && local.uuid != remoteSv.uuid) {
+                        firestore!!.collection("users").document(user.uid).collection("savings").document(doc.id).delete().await()
                     }
                 } catch(e: Exception) {}
             }
@@ -199,7 +203,7 @@ class CloudSyncManager(private val dao: FinanceDao) {
                 }
             }
 
-            // Cleanup Vaults
+            // Cleanup Vaults in Firestore
             val svRef = firestore!!.collection("users").document(user.uid).collection("savings")
             val svSnapshot = svRef.get().await()
             val vaultGroups = mutableMapOf<String, MutableList<SavingsVault>>()
@@ -207,7 +211,7 @@ class CloudSyncManager(private val dao: FinanceDao) {
                 val data = doc.data ?: continue
                 try {
                     val sv = SavingsVault.fromMap(data, doc.id)
-                    val key = sv.assetType
+                    val key = sv.assetType.trim().lowercase()
                     if (!vaultGroups.containsKey(key)) vaultGroups[key] = mutableListOf()
                     vaultGroups[key]!!.add(sv)
                 } catch(e: Exception) {}
@@ -219,6 +223,19 @@ class CloudSyncManager(private val dao: FinanceDao) {
                     for (dup in duplicates) {
                         svRef.document(dup.uuid).delete().await()
                         dao.getAllSavingsVaults().find { it.uuid == dup.uuid }?.let { dao.deleteSavingsVaultById(it.id) }
+                    }
+                }
+            }
+
+            // Cleanup Vaults in local Room
+            val localVaultGroups = dao.getAllSavingsVaults().groupBy { it.assetType.trim().lowercase() }
+            for ((_, svs) in localVaultGroups) {
+                if (svs.size > 1) {
+                    val sorted = svs.sortedByDescending { it.updatedAt }
+                    val duplicates = sorted.drop(1)
+                    for (dup in duplicates) {
+                        dao.deleteSavingsVaultById(dup.id)
+                        svRef.document(dup.uuid).delete().await()
                     }
                 }
             }

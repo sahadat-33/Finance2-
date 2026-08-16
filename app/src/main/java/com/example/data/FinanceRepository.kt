@@ -155,10 +155,11 @@ class FinanceRepository(private val context: Context) {
             if (targetAssetType != null) {
                 val currentVault = dao.getSavingsVaultByAssetType(targetAssetType)
                 if (currentVault != null) {
+                    val now = System.currentTimeMillis()
                     if (transaction.type == "EXPENSE") {
-                        dao.updateSavingsAmount(targetAssetType, currentVault.amount + transaction.amount)
+                        dao.updateSavingsAmount(targetAssetType, currentVault.amount + transaction.amount, now)
                     } else if (transaction.type == "INCOME") {
-                        dao.updateSavingsAmount(targetAssetType, (currentVault.amount - transaction.amount).coerceAtLeast(0.0))
+                        dao.updateSavingsAmount(targetAssetType, (currentVault.amount - transaction.amount).coerceAtLeast(0.0), now)
                     }
                 }
             }
@@ -167,7 +168,69 @@ class FinanceRepository(private val context: Context) {
     }
 
     suspend fun updateTransaction(transaction: Transaction) = withContext(Dispatchers.IO) {
-        dao.updateTransaction(transaction)
+        val oldTransaction = dao.getTransactionById(transaction.id) ?: dao.getTransactionByUuid(transaction.uuid)
+        val now = System.currentTimeMillis()
+        val updatedTx = transaction.copy(updatedAt = now)
+        dao.updateTransaction(updatedTx)
+
+        if (oldTransaction != null) {
+            val oldIsSavings = oldTransaction.categoryName == "Savings"
+            val newIsSavings = transaction.categoryName == "Savings"
+
+            val oldAssetType = if (oldIsSavings) detectAssetType(oldTransaction.note) else null
+            val newAssetType = if (newIsSavings) detectAssetType(transaction.note) else null
+
+            if (oldAssetType != null && newAssetType != null && oldAssetType.equals(newAssetType, ignoreCase = true)) {
+                // Same vault affected: calculate net difference
+                val currentVault = dao.getSavingsVaultByAssetType(oldAssetType)
+                if (currentVault != null) {
+                    val oldImpact = if (oldTransaction.type == "EXPENSE") oldTransaction.amount else -oldTransaction.amount
+                    val newImpact = if (transaction.type == "EXPENSE") transaction.amount else -transaction.amount
+                    val delta = newImpact - oldImpact
+                    val newVaultAmount = (currentVault.amount + delta).coerceAtLeast(0.0)
+                    dao.updateSavingsAmount(currentVault.assetType, newVaultAmount, now)
+                }
+            } else {
+                // Revert old transaction if it affected a vault
+                if (oldAssetType != null) {
+                    val oldVault = dao.getSavingsVaultByAssetType(oldAssetType)
+                    if (oldVault != null) {
+                        val revertedAmount = if (oldTransaction.type == "EXPENSE") {
+                            (oldVault.amount - oldTransaction.amount).coerceAtLeast(0.0)
+                        } else {
+                            oldVault.amount + oldTransaction.amount
+                        }
+                        dao.updateSavingsAmount(oldVault.assetType, revertedAmount, now)
+                    }
+                }
+                // Apply new transaction if it affects a vault
+                if (newAssetType != null) {
+                    val newVault = dao.getSavingsVaultByAssetType(newAssetType)
+                    if (newVault != null) {
+                        val appliedAmount = if (transaction.type == "EXPENSE") {
+                            newVault.amount + transaction.amount
+                        } else {
+                            (newVault.amount - transaction.amount).coerceAtLeast(0.0)
+                        }
+                        dao.updateSavingsAmount(newVault.assetType, appliedAmount, now)
+                    }
+                }
+            }
+        } else if (transaction.categoryName == "Savings") {
+            // Fallback if old transaction not found in db
+            val targetAssetType = detectAssetType(transaction.note)
+            if (targetAssetType != null) {
+                val currentVault = dao.getSavingsVaultByAssetType(targetAssetType)
+                if (currentVault != null) {
+                    if (transaction.type == "EXPENSE") {
+                        dao.updateSavingsAmount(targetAssetType, currentVault.amount + transaction.amount, now)
+                    } else if (transaction.type == "INCOME") {
+                        dao.updateSavingsAmount(targetAssetType, (currentVault.amount - transaction.amount).coerceAtLeast(0.0), now)
+                    }
+                }
+            }
+        }
+
         triggerImmediateSync()
     }
 
@@ -179,10 +242,11 @@ class FinanceRepository(private val context: Context) {
             if (targetAssetType != null) {
                 val currentVault = dao.getSavingsVaultByAssetType(targetAssetType)
                 if (currentVault != null) {
+                    val now = System.currentTimeMillis()
                     if (transaction.type == "EXPENSE") {
-                        dao.updateSavingsAmount(targetAssetType, (currentVault.amount - transaction.amount).coerceAtLeast(0.0))
+                        dao.updateSavingsAmount(targetAssetType, (currentVault.amount - transaction.amount).coerceAtLeast(0.0), now)
                     } else if (transaction.type == "INCOME") {
-                        dao.updateSavingsAmount(targetAssetType, currentVault.amount + transaction.amount)
+                        dao.updateSavingsAmount(targetAssetType, currentVault.amount + transaction.amount, now)
                     }
                 }
             }
@@ -201,7 +265,17 @@ class FinanceRepository(private val context: Context) {
     }
 
     suspend fun insertSavingsVault(vault: SavingsVault) = withContext(Dispatchers.IO) {
-        dao.insertSavingsVault(vault)
+        val existing = dao.getSavingsVaultByAssetType(vault.assetType)
+        if (existing != null) {
+            dao.updateSavingsVault(existing.copy(amount = vault.amount, updatedAt = System.currentTimeMillis()))
+        } else {
+            dao.insertSavingsVault(vault.copy(updatedAt = System.currentTimeMillis()))
+        }
+        triggerImmediateSync()
+    }
+
+    suspend fun updateSavingsVault(vault: SavingsVault) = withContext(Dispatchers.IO) {
+        dao.updateSavingsVault(vault.copy(updatedAt = System.currentTimeMillis()))
         triggerImmediateSync()
     }
 
@@ -220,7 +294,36 @@ class FinanceRepository(private val context: Context) {
     }
 
     suspend fun updateSavingsAmountDirectly(assetType: String, amount: Double) = withContext(Dispatchers.IO) {
-        dao.updateSavingsAmount(assetType, amount)
+        val existing = dao.getSavingsVaultByAssetType(assetType)
+        if (existing != null) {
+            dao.updateSavingsVault(existing.copy(amount = amount, updatedAt = System.currentTimeMillis()))
+        } else {
+            dao.insertSavingsVault(SavingsVault(assetType = assetType, amount = amount, updatedAt = System.currentTimeMillis()))
+        }
+        triggerImmediateSync()
+    }
+
+    suspend fun renameSavingsVault(vaultId: Int, newName: String) = withContext(Dispatchers.IO) {
+        val trimmedNewName = newName.trim()
+        if (trimmedNewName.isBlank()) return@withContext
+        val vault = dao.getSavingsVaultById(vaultId) ?: return@withContext
+        val oldName = vault.assetType.trim()
+        if (oldName.equals(trimmedNewName, ignoreCase = true)) return@withContext
+
+        val now = System.currentTimeMillis()
+        // 1. Update the vault record in Room with new name
+        dao.updateSavingsVault(vault.copy(assetType = trimmedNewName, updatedAt = now))
+
+        // 2. Update any existing transactions that reference this vault by name
+        val allTransactions = dao.getAllTransactions()
+        for (tx in allTransactions) {
+            if (tx.categoryName == "Savings" && tx.note.contains(oldName, ignoreCase = true)) {
+                val updatedNote = tx.note.replace(Regex(Regex.escape(oldName), RegexOption.IGNORE_CASE), trimmedNewName)
+                dao.updateTransaction(tx.copy(note = updatedNote, updatedAt = now))
+            }
+        }
+
+        // 3. Trigger sync to push changes to Firestore
         triggerImmediateSync()
     }
 
@@ -228,10 +331,10 @@ class FinanceRepository(private val context: Context) {
         val regex = Regex("(?:To|From) (.*?) Vault", RegexOption.IGNORE_CASE)
         val match = regex.find(note)
         if (match != null) {
-            return match.groupValues[1]
+            return match.groupValues[1].trim()
         }
         
-        val allVaults = dao.getAllSavingsVaultFlow().first()
+        val allVaults = dao.getAllSavingsVaults()
         for (v in allVaults) {
             if (note.contains(v.assetType, ignoreCase = true)) {
                 return v.assetType

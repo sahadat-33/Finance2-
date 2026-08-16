@@ -46,6 +46,8 @@ import com.example.ui.SettingsScreen
 import com.example.ui.OthersScreen
 import com.example.ui.UpdateScreen
 import com.example.ui.AboutScreen
+import com.example.ui.FullScreenUpdateScreen
+import com.example.ui.ReleaseNotesScreen
 import com.example.ui.TimelineScreen
 import com.example.ui.theme.FinanceTrackerTheme
 import com.example.viewmodel.FinanceViewModel
@@ -78,6 +80,8 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val isUserSignedIn by viewModel.isUserSignedInFlow.collectAsState()
             val isEmailVerified by viewModel.isEmailVerifiedFlow.collectAsState()
             val isOnboardingComplete by viewModel.isOnboardingComplete.collectAsState()
+            val showUpdateDialog by viewModel.showUpdateDialog.collectAsState()
+            val availableUpdate by viewModel.availableUpdate.collectAsState()
 
             val showAuthScreen = !isUserSignedIn && !isOfflineGuest
             
@@ -393,7 +397,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             OthersScreen(viewModel = viewModel, onBack = { navController.popBackStack() }, onNavigateToUpdate = { navController.navigate("update") })
                         }
                         composable("update") {
-                            UpdateScreen(onBack = { navController.popBackStack() }, onNavigateToAbout = { navController.navigate("about") })
+                            UpdateScreen(
+                                viewModel = viewModel,
+                                onBack = { navController.popBackStack() },
+                                onNavigateToAbout = { navController.navigate("about") },
+                                onNavigateToReleaseNotes = { navController.navigate("release_notes") }
+                            )
+                        }
+                        composable("release_notes") {
+                            ReleaseNotesScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                         }
                         composable("about") {
                             AboutScreen(onBack = { navController.popBackStack() })
@@ -417,6 +429,18 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     } // End of Box block
                     } // End of main composable block
                 } // End of root NavHost
+
+                if (showUpdateDialog && availableUpdate != null) {
+                    FullScreenUpdateScreen(
+                        updateInfo = availableUpdate!!,
+                        onDismiss = {
+                            viewModel.dismissUpdateDialog(availableUpdate!!.version)
+                        },
+                        onUpdate = {
+                            viewModel.dismissUpdateDialog(availableUpdate!!.version)
+                        }
+                    )
+                }
             } // End of Theme
         }
     }
