@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,13 +24,26 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Restore debug keystore
-        run: echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > debug.keystore
+        run: |
+          printf '%s' "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > debug.keystore
+
+      - name: Export existing signing key
+        run: |
+          printf '%s' "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" > key.txt
+
+      - name: Upload signing key backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-key-backup
+          path: key.txt
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
 
       - name: Rename APK with version
-        run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/Finance-Tracker_v4.1.3.apk
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk \
+          app/build/outputs/apk/debug/Finance-Tracker_v4.1.3.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
